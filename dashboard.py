@@ -244,7 +244,8 @@ class DashboardScreen(Screen):
         # Stats header (compact)
         with Container(id="stats_header"):
             yield Label(f"🚀 Interview Prep Progress Tracker")
-            yield Label(f"Started: {meta['start_date']}  •  Streak: 🔥 {meta['streak_days']} days")
+            yield Label(f"Started: {meta['start_date']}")
+            yield Label(f"Days Active: {meta['total_days_active']}  •  Streak: 🔥 {meta['streak_days']} days")
 
         # Main content area
         with VerticalScroll(id="main_content"):
@@ -297,128 +298,7 @@ class DashboardScreen(Screen):
 class ProgressTrackerApp(App):
     """Main application"""
 
-    CSS = """
-    Screen {
-        background: $background;
-    }
-
-    #stats_header {
-        background: $boost;
-        padding: 0 1;
-        margin: 0;
-        height: auto;
-    }
-
-    #stats_header Label {
-        padding: 0;
-        margin: 0;
-    }
-
-    .section_title {
-        text-style: bold;
-        color: $accent;
-        background: $surface;
-        padding: 1 0;
-        margin: 1 0 0 0;
-    }
-
-    .overall_label {
-        margin: 0;
-        padding: 0 0 0 1;
-    }
-
-    .overall_progress {
-        margin: 0 0 1 0;
-        padding: 0;
-    }
-
-    #main_content {
-        height: 1fr;
-        padding: 0 1 1 1;
-        margin: 0;
-    }
-
-    .phase_collapsible {
-        margin: 0 0 0 0;
-        padding: 0;
-        border: none;
-    }
-
-    .module_collapsible {
-        margin: 0 0 0 0;
-        padding: 0;
-        border: none;
-    }
-
-    .topic_collapsible {
-        margin: 0 0 0 1;
-        padding: 0;
-        border: none;
-    }
-
-    .phase_progress {
-        margin: 0 0 0 2;
-        padding: 0;
-        height: 1;
-    }
-
-    .topic_label {
-        margin: 0;
-        padding: 0 0 0 2;
-    }
-
-    .problem_item {
-        margin: 0;
-        padding: 0 0 0 1;
-        color: $text-muted;
-    }
-
-    .subtopic_item {
-        margin: 0;
-        padding: 0 0 0 1;
-        color: $text-muted;
-    }
-
-    Collapsible {
-        margin: 0;
-        padding: 0;
-        height: auto;
-    }
-
-    CollapsibleTitle {
-        margin: 0;
-        padding: 0 0 0 1;
-    }
-
-    #add_problem_dialog {
-        width: 60;
-        height: auto;
-        background: $surface;
-        padding: 2;
-        border: thick $primary;
-    }
-
-    #title {
-        text-style: bold;
-        text-align: center;
-        padding-bottom: 1;
-    }
-
-    .buttons {
-        width: 100%;
-        height: auto;
-        align: center middle;
-        padding-top: 1;
-    }
-
-    Input {
-        margin-bottom: 1;
-    }
-
-    Button {
-        margin: 0 1;
-    }
-    """
+    CSS_PATH = "dashboard.tcss"
 
     def __init__(self):
         super().__init__()
