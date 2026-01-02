@@ -1,0 +1,425 @@
+{
+  "meta": {
+    "start_date": "YYYY-MM-DD",
+    "last_updated": "YYYY-MM-DD",
+    "current_phase": 1,
+    "streak_days": 0,
+    "total_days_active": 0,
+    "activity_dates": []
+  },
+  "leetcode": {
+    "total_target": 250,
+    "total_solved": 0,
+    "phases": [
+      {
+        "id": 1,
+        "name": "Phase 1: Fundamentals",
+        "target": 40,
+        "solved": 0,
+        "topics": [
+          {
+            "name": "Arrays",
+            "target": 10,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Strings",
+            "target": 10,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Hash Maps",
+            "target": 10,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Basic Math",
+            "target": 10,
+            "solved": 0,
+            "problems": []
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "name": "Phase 2: Patterns",
+        "target": 50,
+        "solved": 0,
+        "topics": [
+          {
+            "name": "Two Pointers",
+            "target": 10,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Sliding Window",
+            "target": 10,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Binary Search",
+            "target": 15,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Recursion Basics",
+            "target": 15,
+            "solved": 0,
+            "problems": []
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "name": "Phase 3: Data Structures",
+        "target": 60,
+        "solved": 0,
+        "topics": [
+          {
+            "name": "Trees",
+            "target": 20,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Graphs",
+            "target": 20,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Heaps",
+            "target": 10,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Stacks & Queues",
+            "target": 10,
+            "solved": 0,
+            "problems": []
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "name": "Phase 4: Algorithms",
+        "target": 50,
+        "solved": 0,
+        "topics": [
+          {
+            "name": "Dynamic Programming",
+            "target": 20,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Backtracking",
+            "target": 10,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Graph Algorithms",
+            "target": 10,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Advanced Trees",
+            "target": 10,
+            "solved": 0,
+            "problems": []
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "name": "Phase 5: Mastery",
+        "target": 50,
+        "solved": 0,
+        "topics": [
+          {
+            "name": "Hard Problems",
+            "target": 30,
+            "solved": 0,
+            "problems": []
+          },
+          {
+            "name": "Optimization",
+            "target": 20,
+            "solved": 0,
+            "problems": []
+          }
+        ]
+      }
+    ]
+  },
+  "systems": {
+    "modules": [
+      {
+        "name": "C/C++ Mastery",
+        "topics": [
+          {
+            "name": "Pointers & References",
+            "completed": false,
+            "subtopics": [
+              "Pointer basics",
+              "Pointer arithmetic",
+              "Pointer-to-pointer",
+              "Function pointers",
+              "References vs pointers"
+            ]
+          },
+          {
+            "name": "Memory Layout & Alignment",
+            "completed": false,
+            "subtopics": [
+              "Stack vs heap",
+              "Struct padding",
+              "Memory alignment",
+              "Memory layout"
+            ]
+          },
+          {
+            "name": "OOP Concepts",
+            "completed": false,
+            "subtopics": [
+              "Classes and objects",
+              "Inheritance",
+              "Polymorphism",
+              "Virtual functions",
+              "Abstract classes"
+            ]
+          },
+          {
+            "name": "Templates & Generic Programming",
+            "completed": false,
+            "subtopics": [
+              "Function templates",
+              "Class templates",
+              "Template specialization",
+              "Variadic templates"
+            ]
+          },
+          {
+            "name": "STL Deep Dive",
+            "completed": false,
+            "subtopics": [
+              "Containers",
+              "Iterators",
+              "Algorithms",
+              "Custom allocators"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "OS Fundamentals",
+        "topics": [
+          {
+            "name": "Processes & Threads",
+            "completed": false,
+            "subtopics": [
+              "Process creation",
+              "Process states",
+              "Thread creation",
+              "Thread synchronization"
+            ]
+          },
+          {
+            "name": "Scheduling",
+            "completed": false,
+            "subtopics": [
+              "Scheduling algorithms",
+              "Context switching",
+              "Priority scheduling",
+              "Real-time scheduling"
+            ]
+          },
+          {
+            "name": "System Calls",
+            "completed": false,
+            "subtopics": [
+              "System call interface",
+              "fork/exec/wait",
+              "File I/O",
+              "Signals"
+            ]
+          },
+          {
+            "name": "IPC Mechanisms",
+            "completed": false,
+            "subtopics": [
+              "Pipes",
+              "Message queues",
+              "Shared memory",
+              "Sockets"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Memory Management",
+        "topics": [
+          {
+            "name": "Virtual Memory",
+            "completed": false,
+            "subtopics": [
+              "Address spaces",
+              "Page tables",
+              "TLB",
+              "Page replacement"
+            ]
+          },
+          {
+            "name": "Memory Allocators",
+            "completed": false,
+            "subtopics": [
+              "malloc internals",
+              "Buddy allocator",
+              "Slab allocator",
+              "Custom allocators"
+            ]
+          },
+          {
+            "name": "Cache Architecture",
+            "completed": false,
+            "subtopics": [
+              "Cache hierarchy",
+              "Cache coherence",
+              "Cache optimization",
+              "False sharing"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Concurrency",
+        "topics": [
+          {
+            "name": "Thread Synchronization",
+            "completed": false,
+            "subtopics": [
+              "Mutexes",
+              "Semaphores",
+              "Condition variables",
+              "Read-write locks"
+            ]
+          },
+          {
+            "name": "Lock-Free Programming",
+            "completed": false,
+            "subtopics": [
+              "Atomics",
+              "Memory ordering",
+              "Lock-free data structures",
+              "ABA problem"
+            ]
+          },
+          {
+            "name": "Concurrency Patterns",
+            "completed": false,
+            "subtopics": [
+              "Producer-consumer",
+              "Readers-writers",
+              "Thread pools",
+              "Work stealing"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Computer Architecture",
+        "topics": [
+          {
+            "name": "CPU Architecture",
+            "completed": false,
+            "subtopics": [
+              "Instruction pipeline",
+              "Branch prediction",
+              "Out-of-order execution",
+              "Superscalar execution"
+            ]
+          },
+          {
+            "name": "SIMD & Vectorization",
+            "completed": false,
+            "subtopics": [
+              "SSE/AVX instructions",
+              "Vectorization patterns",
+              "Auto-vectorization",
+              "Intrinsics"
+            ]
+          },
+          {
+            "name": "GPU Concepts",
+            "completed": false,
+            "subtopics": [
+              "GPU architecture",
+              "CUDA/ROCm basics",
+              "Memory hierarchies",
+              "Kernel optimization"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Networking",
+        "topics": [
+          {
+            "name": "TCP/IP Stack",
+            "completed": false,
+            "subtopics": [
+              "Network layers",
+              "TCP protocol",
+              "UDP protocol",
+              "IP routing"
+            ]
+          },
+          {
+            "name": "Socket Programming",
+            "completed": false,
+            "subtopics": [
+              "Berkeley sockets",
+              "Client-server model",
+              "Non-blocking I/O",
+              "epoll/select/poll"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Performance",
+        "topics": [
+          {
+            "name": "Profiling & Benchmarking",
+            "completed": false,
+            "subtopics": [
+              "perf tools",
+              "Flame graphs",
+              "Microbenchmarking",
+              "Statistical analysis"
+            ]
+          },
+          {
+            "name": "Optimization Techniques",
+            "completed": false,
+            "subtopics": [
+              "Algorithmic optimization",
+              "Data structure choice",
+              "Cache optimization",
+              "Compiler optimizations"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
