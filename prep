@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""
+Quick CLI tool for interview prep tracking
+"""
+
+import sys
+import json
+from pathlib import Path
+from datetime import datetime
+
+
+PROGRESS_FILE = Path(__file__).parent / "progress.json"
+
+
+def load_progress():
+    """Load progress data"""
+    with open(PROGRESS_FILE, 'r') as f:
+        return json.load(f)
+
+
+def save_progress(data):
+    """Save progress data"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    data['meta']['last_updated'] = today
+
+    # Update activity tracking
+    if 'activity_dates' not in data['meta']:
+        data['meta']['activity_dates'] = []
+
+    if today not in data['meta']['activity_dates']:
+        data['meta']['activity_dates'].append(today)
+        data['meta']['activity_dates'].sort()
+
+    # Calculate streak
+    dates = sorted(data['meta']['activity_dates'], reverse=True)
+    streak = 0
+    if dates:
+        streak = 1
+        for i in range(len(dates) - 1):
+            current = datetime.strptime(dates[i], "%Y-%m-%d")
+            previous = datetime.strptime(dates[i+1], "%Y-%m-%d")
+            diff = (current - previous).days
+            if diff == 1:
+                streak += 1
+            else:
+                break
+
+    data['meta']['streak_days'] = streak
+    data['meta']['total_days_active'] = len(data['meta']['activity_dates'])
+
+    with open(PROGRESS_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
+
+
+def show_quick_status():
+    """Show quick status summary"""
+    data = load_progress()
+    leetcode = data['leetcode']
+    meta = data['meta']
+
+    total_solved = leetcode['total_solved']
+    total_target = leetcode['total_target']
+    overall_pct = int((total_solved / total_target * 100)) if total_target > 0 else 0
+
+    print("=" * 60)
+    print("🚀 Interview Prep Quick Status")
+    print("=" * 60)
+    print(f"Started: {meta['start_date']}")
+    print(f"Days Active: {meta['total_days_active']} | Streak: 🔥 {meta['streak_days']} days")
+    print()
+    print(f"📊 LeetCode: {total_solved}/{total_target} ({overall_pct}%)")
+    print()
+
+    # Show current phase
+    current_phase_id = meta['current_phase']
+    for phase in leetcode['phases']:
+        if phase['id'] == current_phase_id:
+            solved = phase['solved']
+            target = phase['target']
+            pct = int((solved / target * 100)) if target > 0 else 0
+            print(f"Current Phase: {phase['name']}")
+            print(f"Progress: {solved}/{target} ({pct}%)")
+            print()
+            print("Topics:")
+            for topic in phase['topics']:
+                status = "✓" if topic['solved'] >= topic['target'] else f"{topic['solved']}/{topic['target']}"
+                print(f"  • {topic['name']:<20} {status}")
+            break
+
+    print()
+    print("Run './prep-dashboard' for full interactive view")
+    print("=" * 60)
+
+
+def add_problem(phase_id, topic_name, problem_name):
+    """Add a solved problem"""
+    data = load_progress()
+
+    # Find and update the topic
+    found = False
+    for phase in data['leetcode']['phases']:
+        if phase['id'] == phase_id:
+            for topic in phase['topics']:
+                if topic['name'].lower() == topic_name.lower():
+                    if problem_name not in topic['problems']:
+                        topic['problems'].append(problem_name)
+                        topic['solved'] = len(topic['problems'])
+                        print(f"✅ Added '{problem_name}' to {topic['name']} (Phase {phase_id})")
+                        found = True
+                    else:
+                        print(f"ℹ️  '{problem_name}' already exists in {topic['name']}")
+                        return
+                    break
+            if found:
+                # Recalculate phase total
+                phase['solved'] = sum(t['solved'] for t in phase['topics'])
+                break
+
+    if not found:
+        print(f"❌ Topic '{topic_name}' not found in Phase {phase_id}")
+        print("Available topics:")
+        for phase in data['leetcode']['phases']:
+            if phase['id'] == phase_id:
+                for topic in phase['topics']:
+                    print(f"  • {topic['name']}")
+        return
+
+    # Recalculate total
+    data['leetcode']['total_solved'] = sum(p['solved'] for p in data['leetcode']['phases'])
+
+    save_progress(data)
+    print(f"Current progress: {data['leetcode']['total_solved']}/{data['leetcode']['total_target']}")
+
+
+def remove_problem(phase_id, topic_name, problem_name):
+    """Remove a problem"""
+    data = load_progress()
+
+    # Find and remove from the topic
+    found = False
+    for phase in data['leetcode']['phases']:
+        if phase['id'] == phase_id:
+            for topic in phase['topics']:
+                if topic['name'].lower() == topic_name.lower():
+                    if problem_name in topic['problems']:
+                        topic['problems'].remove(problem_name)
+                        topic['solved'] = len(topic['problems'])
+                        print(f"🗑️  Removed '{problem_name}' from {topic['name']} (Phase {phase_id})")
+                        found = True
+                    else:
+                        print(f"❌ '{problem_name}' not found in {topic['name']}")
+                        if topic['problems']:
+                            print("Available problems:")
+                            for p in topic['problems']:
+                                print(f"  • {p}")
+                        return
+                    break
+            if found:
+                # Recalculate phase total
+                phase['solved'] = sum(t['solved'] for t in phase['topics'])
+                break
+
+    if not found:
+        print(f"❌ Topic '{topic_name}' not found in Phase {phase_id}")
+        return
+
+    # Recalculate total
+    data['leetcode']['total_solved'] = sum(p['solved'] for p in data['leetcode']['phases'])
+
+    save_progress(data)
+    print(f"Current progress: {data['leetcode']['total_solved']}/{data['leetcode']['total_target']}")
+
+
+def show_help():
+    """Show help message"""
+    print("""
+Interview Prep Tracker CLI
+
+Usage:
+    ./prep                          Show quick status
+    ./prep add <phase> <topic> "<problem>"
+                                    Add a solved problem
+    ./prep remove <phase> <topic> "<problem>"
+                                    Remove a problem
+    ./prep dashboard                Launch interactive dashboard
+    ./prep help                     Show this help
+
+Examples:
+    ./prep add 1 Arrays "Two Sum"
+    ./prep remove 1 Arrays "Product except itself"
+    ./prep add 2 "Two Pointers" "Container With Most Water"
+
+Phase Reference:
+    1 - Fundamentals (Arrays, Strings, Hash Maps, Basic Math)
+    2 - Patterns (Two Pointers, Sliding Window, Binary Search, Recursion)
+    3 - Data Structures (Trees, Graphs, Heaps, Stacks & Queues)
+    4 - Algorithms (Dynamic Programming, Backtracking, Graph Algorithms)
+    5 - Mastery (Hard Problems, Optimization)
+    """)
+
+
+def main():
+    if len(sys.argv) == 1:
+        show_quick_status()
+        return
+
+    command = sys.argv[1].lower()
+
+    if command == "help" or command == "-h" or command == "--help":
+        show_help()
+    elif command == "dashboard" or command == "dash":
+        import subprocess
+        subprocess.run([sys.executable, str(Path(__file__).parent / "tracker" / "dashboard.py")])
+    elif command == "add":
+        if len(sys.argv) < 5:
+            print("❌ Usage: ./prep add <phase> <topic> \"<problem>\"")
+            print("Example: ./prep add 1 Arrays \"Two Sum\"")
+            return
+
+        try:
+            phase_id = int(sys.argv[2])
+            topic_name = sys.argv[3]
+            problem_name = sys.argv[4]
+
+            if not (1 <= phase_id <= 5):
+                print("❌ Phase must be between 1 and 5")
+                return
+
+            add_problem(phase_id, topic_name, problem_name)
+        except ValueError:
+            print("❌ Phase must be a number (1-5)")
+    elif command == "remove" or command == "rm" or command == "delete":
+        if len(sys.argv) < 5:
+            print("❌ Usage: ./prep remove <phase> <topic> \"<problem>\"")
+            print("Example: ./prep remove 1 Arrays \"Product except itself\"")
+            return
+
+        try:
+            phase_id = int(sys.argv[2])
+            topic_name = sys.argv[3]
+            problem_name = sys.argv[4]
+
+            if not (1 <= phase_id <= 5):
+                print("❌ Phase must be between 1 and 5")
+                return
+
+            remove_problem(phase_id, topic_name, problem_name)
+        except ValueError:
+            print("❌ Phase must be a number (1-5)")
+    else:
+        print(f"❌ Unknown command: {command}")
+        print("Run './prep help' for usage information")
+
+
+if __name__ == "__main__":
+    main()
