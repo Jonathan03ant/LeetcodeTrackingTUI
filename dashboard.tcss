@@ -118,3 +118,24 @@ Input {
 Button {
     margin: 0 1;
 }
+
+#solve_content {
+    height: 1fr;
+    padding: 1;
+    background: $background;
+}
+
+#solve_instructions {
+    color: $text-muted;
+    padding: 1 0;
+    margin: 1 0;
+}
+
+#problem_display {
+    height: auto;
+    min-height: 10;
+    background: $panel;
+    padding: 2;
+    margin: 1 0;
+    border: round $primary;
+}
