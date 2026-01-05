@@ -168,6 +168,50 @@ class CollapsibleSystemsModule(Static):
                     yield Label(f"  {checkbox} {topic['name']}", classes="topic_label")
 
 
+class SolveModeScreen(ModalScreen[bool]):
+    """Modal screen for spaced repetition practice"""
+
+    BINDINGS = [
+        Binding("g", "generate", "Generate Question"),
+        Binding("e", "edit", "Edit"),
+        Binding("v", "view", "View Solutions"),
+        Binding("n", "next", "Next"),
+        Binding("q", "dismiss", "Back"),
+    ]
+
+    def __init__(self, progress_data: ProgressData):
+        super().__init__()
+        self.progress_data = progress_data
+        self.current_problem = None
+
+    def compose(self) -> ComposeResult:
+        yield Container(
+            Label("🎯 Solve Mode - Spaced Repetition", id="title"),
+            Label("Press (g) to generate a random question from solved problems", id="instructions"),
+            Container(id="problem_display"),
+            id="solve_mode_dialog"
+        )
+
+    def action_generate(self):
+        """Generate random question from solved problems"""
+        # TODO: Implement random question picker
+        pass
+
+    def action_edit(self):
+        """Open vim editor for solution"""
+        # TODO: Implement vim editor
+        pass
+
+    def action_view(self):
+        """View solutions from this session"""
+        # TODO: Implement solution viewer
+        pass
+
+    def action_next(self):
+        """Generate next random question"""
+        self.action_generate()
+
+
 class AddProblemScreen(ModalScreen[bool]):
     """Modal screen for adding a solved problem"""
 
@@ -226,6 +270,7 @@ class DashboardScreen(Screen):
     BINDINGS = [
         Binding("a", "add_problem", "Add Problem"),
         Binding("r", "refresh", "Refresh"),
+        Binding("s", "solve", "Solve"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -241,9 +286,9 @@ class DashboardScreen(Screen):
         leetcode = data['leetcode']
         systems = data['systems']
 
-        # Stats header (compact)
+        # Stats header (compact) 
         with Container(id="stats_header"):
-            yield Label(f"🚀 Interview Prep Progress Tracker")
+            yield Label(f"Interview Prep Progress Tracker")
             yield Label(f"Started: {meta['start_date']}")
             yield Label(f"Days Active: {meta['total_days_active']}  •  Streak: 🔥 {meta['streak_days']} days")
 
@@ -283,6 +328,14 @@ class DashboardScreen(Screen):
                 self.app.push_screen(DashboardScreen(self.progress_data))
 
         self.app.push_screen(AddProblemScreen(self.progress_data), handle_result)
+
+    def action_solve(self):
+        """Show solve mode modal"""
+        def handle_result(result: bool):
+            # Just dismiss, no need to refresh
+            pass
+
+        self.app.push_screen(SolveModeScreen(self.progress_data), handle_result)
 
     def action_refresh(self):
         """Refresh the dashboard"""
