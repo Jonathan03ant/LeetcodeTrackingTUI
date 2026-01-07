@@ -4,9 +4,12 @@ Interview Prep Progress Tracker - Interactive Dashboard
 """
 
 import json
+import random
+import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
@@ -69,6 +72,18 @@ class ProgressData:
                         self.save()
                         return topic['completed']
         return False
+
+    def get_all_solved_problems(self) -> List[Tuple[str, str, str, int]]:
+        """Get all solved problems as list of (problem_name, topic_name, phase_name, phase_id)"""
+        solved = []
+        for phase in self.data['leetcode']['phases']:
+            phase_name = phase['name']
+            phase_id = phase['id']
+            for topic in phase['topics']:
+                topic_name = topic['name']
+                for problem in topic['problems']:
+                    solved.append((problem, topic_name, phase_name, phase_id))
+        return solved
 
 
 class CollapsiblePhase(Static):
@@ -168,48 +183,130 @@ class CollapsibleSystemsModule(Static):
                     yield Label(f"  {checkbox} {topic['name']}", classes="topic_label")
 
 
-class SolveModeScreen(ModalScreen[bool]):
-    """Modal screen for spaced repetition practice"""
+class SolveModeScreen(Screen):
+    """Full screen for spaced repetition practice"""
 
     BINDINGS = [
-        Binding("g", "generate", "Generate Question"),
+        Binding("g", "generate", "Generate"),
         Binding("e", "edit", "Edit"),
-        Binding("v", "view", "View Solutions"),
+        Binding("v", "view", "View"),
         Binding("n", "next", "Next"),
-        Binding("q", "dismiss", "Back"),
+        Binding("q", "back", "Back"),
     ]
 
     def __init__(self, progress_data: ProgressData):
         super().__init__()
         self.progress_data = progress_data
         self.current_problem = None
+        self.current_problem_text = ""  # Track current display text
+        self.session_solutions = []  # List of (problem_name, file_path) tuples
+        self.temp_dir = Path(tempfile.mkdtemp(prefix="leetcode_solve_"))
 
     def compose(self) -> ComposeResult:
-        yield Container(
-            Label("🎯 Solve Mode - Spaced Repetition", id="title"),
-            Label("Press (g) to generate a random question from solved problems", id="instructions"),
-            Container(id="problem_display"),
-            id="solve_mode_dialog"
-        )
+        yield Header()
+
+        with Container(id="solve_content"):
+            yield Label("Solve Mode - Spaced Repetition", classes="section_title")
+            yield Label("Press (g) to generate a random question from solved problems", id="solve_instructions")
+            with Container(id="problem_display"):
+                yield Label("", id="problem_text")
+
+        yield Footer()
 
     def action_generate(self):
         """Generate random question from solved problems"""
-        # TODO: Implement random question picker
-        pass
+        solved_problems = self.progress_data.get_all_solved_problems()
+
+        if not solved_problems:
+            # No solved problems yet
+            problem_text = self.query_one("#problem_text", Label)
+            problem_text.update("No solved problems found. Solve some problems first!")
+            return
+
+        # Pick random problem
+        problem_name, topic_name, phase_name, phase_id = random.choice(solved_problems)
+        self.current_problem = {
+            'name': problem_name,
+            'topic': topic_name,
+            'phase': phase_name,
+            'phase_id': phase_id
+        }
+
+        # Update display
+        self.current_problem_text = (
+            f"Problem: {problem_name}\n"
+            f"Topic: {topic_name}\n"
+            f"Phase: {phase_name}"
+        )
+        problem_text = self.query_one("#problem_text", Label)
+        problem_text.update(self.current_problem_text)
 
     def action_edit(self):
         """Open vim editor for solution"""
-        # TODO: Implement vim editor
-        pass
+        # Determine filename
+        if self.current_problem:
+            # Clean problem name for filename (remove spaces, special chars)
+            problem_name = self.current_problem['name']
+            clean_name = problem_name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+            filename = f"{clean_name}.py"
+        else:
+            # No problem generated, use generic name
+            filename = "solution.py"
+
+        # Create temp file path
+        file_path = self.temp_dir / filename
+
+        # Check if this problem already has a solution file
+        existing_solution = next((sol for sol in self.session_solutions if sol[0] == filename), None)
+        if existing_solution:
+            file_path = Path(existing_solution[1])
+
+        # Suspend the app to run vim
+        with self.app.suspend():
+            editor = subprocess.run(["vim", str(file_path)])
+
+        # If file exists and has content, track it
+        if file_path.exists() and file_path.stat().st_size > 0:
+            if not existing_solution:
+                self.session_solutions.append((filename, str(file_path)))
+
+                # Only show saved message once (when first saved)
+                # Remove any existing saved message first
+                base_text = self.current_problem_text.split("\n\n[Solution saved")[0]
+                self.current_problem_text = f"{base_text}\n\n[Solution saved to: {filename}]"
+                problem_text = self.query_one("#problem_text", Label)
+                problem_text.update(self.current_problem_text)
 
     def action_view(self):
         """View solutions from this session"""
-        # TODO: Implement solution viewer
-        pass
+        if not self.session_solutions:
+            self.current_problem_text = "No solutions saved in this session yet."
+            problem_text = self.query_one("#problem_text", Label)
+            problem_text.update(self.current_problem_text)
+            return
+
+        # Build list of solutions
+        solutions_list = "Solutions saved this session:\n\n"
+        for i, (filename, filepath) in enumerate(self.session_solutions, 1):
+            solutions_list += f"{i}. {filename}\n"
+
+        solutions_list += "\nPress (e) to edit the current problem's solution"
+
+        self.current_problem_text = solutions_list
+        problem_text = self.query_one("#problem_text", Label)
+        problem_text.update(self.current_problem_text)
 
     def action_next(self):
         """Generate next random question"""
         self.action_generate()
+
+    def action_back(self):
+        """Go back to main dashboard"""
+        # Clean up temp files
+        import shutil
+        if self.temp_dir.exists():
+            shutil.rmtree(self.temp_dir)
+        self.app.pop_screen()
 
 
 class AddProblemScreen(ModalScreen[bool]):
@@ -290,12 +387,12 @@ class DashboardScreen(Screen):
         with Container(id="stats_header"):
             yield Label(f"Interview Prep Progress Tracker")
             yield Label(f"Started: {meta['start_date']}")
-            yield Label(f"Days Active: {meta['total_days_active']}  •  Streak: 🔥 {meta['streak_days']} days")
+            yield Label(f"Days Active: {meta['total_days_active']}  •  Streak:  {meta['streak_days']} days")
 
         # Main content area
         with VerticalScroll(id="main_content"):
             # LeetCode section
-            yield Label("━━━ 📊 LEETCODE PROGRESS ━━━", classes="section_title")
+            yield Label("━━━ ━━━ LEETCODE PROGRESS ━━━ ━━━", classes="section_title")
 
             total_solved = leetcode['total_solved']
             total_target = leetcode['total_target']
@@ -312,7 +409,7 @@ class DashboardScreen(Screen):
                 yield CollapsiblePhase(phase, i, self.progress_data)
 
             # Systems section
-            yield Label("━━━ ⚙️  SYSTEMS PROGRESS ━━━", classes="section_title")
+            yield Label("━━━ ━━━ SYSTEMS PROGRESS ━━━ ━━━", classes="section_title")
 
             # Modules
             for i, module in enumerate(systems['modules']):
@@ -330,12 +427,8 @@ class DashboardScreen(Screen):
         self.app.push_screen(AddProblemScreen(self.progress_data), handle_result)
 
     def action_solve(self):
-        """Show solve mode modal"""
-        def handle_result(result: bool):
-            # Just dismiss, no need to refresh
-            pass
-
-        self.app.push_screen(SolveModeScreen(self.progress_data), handle_result)
+        """Show solve mode screen"""
+        self.app.push_screen(SolveModeScreen(self.progress_data))
 
     def action_refresh(self):
         """Refresh the dashboard"""
