@@ -12,15 +12,14 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import (
     Header, Footer, Static, ProgressBar, Button,
-    Label, Input, Collapsible, Tree, ListView, ListItem
+    Label, Input, Collapsible
 )
 from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
-from textual.message import Message
-from textual import on, work
+from textual import on
 
 
 class ProgressData:
@@ -183,6 +182,118 @@ class CollapsibleSystemsModule(Static):
                     yield Label(f"  {checkbox} {topic['name']}", classes="topic_label")
 
 
+class ViewSolutionsScreen(Screen):
+    """Interactive screen for viewing saved solutions"""
+
+    BINDINGS = [
+        Binding("up", "navigate_up", "Up", show=False),
+        Binding("down", "navigate_down", "Down", show=False),
+        Binding("j", "navigate_down", "Down", show=False),
+        Binding("k", "navigate_up", "Up", show=False),
+        Binding("enter", "select", "Select"),
+        Binding("e", "edit_selected", "Edit"),
+        Binding("q", "back", "Back"),
+        Binding("escape", "back", "Back"),
+    ]
+
+    def __init__(self, session_solutions: List[Tuple[str, str]]):
+        super().__init__()
+        self.session_solutions = session_solutions
+        self.selected_index = 0
+        self.current_filepath = None
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+
+        with Container(id="view_content"):
+            yield Label("Saved Solutions", classes="section_title")
+            yield Label("↑↓/jk to navigate | Enter/(e) to edit | (q) to go back", id="view_instructions")
+
+            with VerticalScroll(id="solutions_area"):
+                if self.session_solutions:
+                    for i, (filename, filepath) in enumerate(self.session_solutions):
+                        label_text = f"{'>' if i == 0 else ' '} {i+1}. {filename}"
+                        yield Label(label_text, id=f"sol_{i}", classes="solution_item")
+                else:
+                    yield Label("No solutions saved yet", id="empty_message")
+
+            with VerticalScroll(id="content_area"):
+                yield Label("", id="file_content")
+
+        yield Footer()
+
+    def on_mount(self):
+        """Automatically select and show first solution"""
+        if self.session_solutions:
+            self.show_solution_at_index(0)
+
+    def update_selection_display(self):
+        """Update the visual selection indicator"""
+        for i in range(len(self.session_solutions)):
+            label = self.query_one(f"#sol_{i}", Label)
+            filename = self.session_solutions[i][0]
+            prefix = ">" if i == self.selected_index else " "
+            label.update(f"{prefix} {i+1}. {filename}")
+
+    def show_solution_at_index(self, idx: int):
+        """Show content of solution at given index"""
+        if 0 <= idx < len(self.session_solutions):
+            self.selected_index = idx
+            filename, filepath = self.session_solutions[idx]
+            self.current_filepath = filepath
+
+            # Update selection display
+            self.update_selection_display()
+
+            # Read and display file content
+            try:
+                with open(filepath, 'r') as f:
+                    content = f.read()
+
+                content_label = self.query_one("#file_content", Label)
+                content_label.update(f"File: {filename}\n{'='*50}\n\n{content}")
+
+            except Exception as e:
+                content_label = self.query_one("#file_content", Label)
+                content_label.update(f"Error reading file: {e}")
+
+    def action_navigate_up(self):
+        """Navigate to previous solution"""
+        if self.selected_index > 0:
+            self.show_solution_at_index(self.selected_index - 1)
+
+    def action_navigate_down(self):
+        """Navigate to next solution"""
+        if self.selected_index < len(self.session_solutions) - 1:
+            self.show_solution_at_index(self.selected_index + 1)
+
+    def action_select(self):
+        """Select current item - opens editor"""
+        self.action_edit_selected()
+
+    def action_edit_selected(self):
+        """Edit the currently selected/viewed solution"""
+        if self.current_filepath:
+            # Suspend the app to run vim
+            with self.app.suspend():
+                subprocess.run(["vim", str(self.current_filepath)])
+
+            # Refresh content display after editing
+            try:
+                with open(self.current_filepath, 'r') as f:
+                    content = f.read()
+
+                filename = Path(self.current_filepath).name
+                content_label = self.query_one("#file_content", Label)
+                content_label.update(f"File: {filename}\n{'='*50}\n\n{content}")
+            except Exception as e:
+                pass
+
+    def action_back(self):
+        """Go back to solve mode"""
+        self.app.pop_screen()
+
+
 class SolveModeScreen(Screen):
     """Full screen for spaced repetition practice"""
 
@@ -285,16 +396,8 @@ class SolveModeScreen(Screen):
             problem_text.update(self.current_problem_text)
             return
 
-        # Build list of solutions
-        solutions_list = "Solutions saved this session:\n\n"
-        for i, (filename, filepath) in enumerate(self.session_solutions, 1):
-            solutions_list += f"{i}. {filename}\n"
-
-        solutions_list += "\nPress (e) to edit the current problem's solution"
-
-        self.current_problem_text = solutions_list
-        problem_text = self.query_one("#problem_text", Label)
-        problem_text.update(self.current_problem_text)
+        # Push to interactive view screen
+        self.app.push_screen(ViewSolutionsScreen(self.session_solutions))
 
     def action_next(self):
         """Generate next random question"""
