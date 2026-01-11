@@ -386,8 +386,8 @@ class DashboardScreen(Screen):
         # Stats header (compact) 
         with Container(id="stats_header"):
             yield Label(f"Interview Prep Progress Tracker")
-            yield Label(f"Started: {meta['start_date']}")
-            yield Label(f"Days Active: {meta['total_days_active']}  •  Streak:  {meta['streak_days']} days")
+            yield Label(f"Started: {meta['start_date']}\n")
+            yield Label(f"Days Active: {meta['total_days_active']}  \nStreak:  {meta['streak_days']} days")
 
         # Main content area
         with VerticalScroll(id="main_content"):
