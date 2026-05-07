@@ -40,6 +40,11 @@ def fetch_problem_description(url: str) -> Optional[Dict[str, str]]:
                 content
                 difficulty
                 exampleTestcases
+                codeSnippets {
+                    lang
+                    langSlug
+                    code
+                }
             }
         }
         """
@@ -76,10 +81,19 @@ def fetch_problem_description(url: str) -> Optional[Dict[str, str]]:
             content = re.sub(r'\n\s*\n', '\n\n', content)
             content = content.strip()
 
+            # Extract Python3 code snippet
+            python_code = ""
+            if 'codeSnippets' in question:
+                for snippet in question['codeSnippets']:
+                    if snippet['langSlug'] == 'python3':
+                        python_code = snippet['code']
+                        break
+
             return {
                 'title': f"#{question['questionId']}. {question['title']} [{question['difficulty']}]",
                 'description': content,
-                'url': url
+                'url': url,
+                'code_template': python_code
             }
 
         return None
