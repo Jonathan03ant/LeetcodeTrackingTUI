@@ -13,9 +13,11 @@ from typing import Dict, List, Any, Optional, Tuple
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll
+
+from leetcode_fetcher import fetch_problem_description, format_problem_for_display
 from textual.widgets import (
     Header, Footer, Static, ProgressBar, Button,
-    Label, Input, Collapsible
+    Label, Input, Collapsible, TextArea
 )
 from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
@@ -72,8 +74,8 @@ class ProgressData:
                         return topic['completed']
         return False
 
-    def get_all_solved_problems(self) -> List[Tuple[str, str, str, int]]:
-        """Get all solved problems as list of (problem_name, topic_name, phase_name, phase_id)"""
+    def get_all_solved_problems(self) -> List[Tuple[str, str, str, str, int]]:
+        """Get all solved problems as list of (problem_name, pattern, url, topic_name, phase_name, phase_id)"""
         solved = []
         for phase in self.data['leetcode']['phases']:
             phase_name = phase['name']
@@ -81,7 +83,19 @@ class ProgressData:
             for topic in phase['topics']:
                 topic_name = topic['name']
                 for problem in topic['problems']:
-                    solved.append((problem, topic_name, phase_name, phase_id))
+                    # Handle both old string format and new dict format
+                    if isinstance(problem, dict):
+                        problem_name = problem.get('name', '')
+                        pattern = problem.get('pattern', '')
+                        url = problem.get('url', '')
+                    else:
+                        # Old format: "Problem Name; pattern"
+                        parts = problem.split(';')
+                        problem_name = parts[0].strip()
+                        pattern = parts[1].strip() if len(parts) > 1 else ''
+                        url = ''
+
+                    solved.append((problem_name, pattern, url, topic_name, phase_name, phase_id))
         return solved
 
 
@@ -180,6 +194,78 @@ class CollapsibleSystemsModule(Static):
                             yield Label(f"  • {subtopic}", classes="subtopic_item")
                 else:
                     yield Label(f"  {checkbox} {topic['name']}", classes="topic_label")
+
+
+class CollapsibleBitLevel(Static):
+    """Collapsible widget for a Bit-Systems level"""
+
+    def __init__(self, level: Dict, level_idx: int, progress_data: ProgressData):
+        super().__init__()
+        self.level = level
+        self.level_idx = level_idx
+        self.progress_data = progress_data
+        self.expanded = (level_idx == 0)  # First level expanded by default
+
+    def compose(self) -> ComposeResult:
+        level = self.level
+        solved = level['exercises_solved']
+        total = level['total_exercises']
+        percentage = int((solved / total * 100)) if total > 0 else 0
+        completed = level['completed']
+
+        bar_length = 10
+        filled = int(bar_length * percentage / 100)
+        bar_str = "█" * filled + "░" * (bar_length - filled)
+
+        # Mark as CRITICAL for level 4
+        critical_mark = " ⚠️  CRITICAL" if level['id'] == 4 else ""
+        complete_mark = " ✓" if completed else ""
+
+        with Collapsible(
+            title=f"Level {level['id']}: {level['name']}{critical_mark}{complete_mark} - {solved}/{total} [{bar_str}] {percentage}%",
+            collapsed=not self.expanded,
+            classes="level_collapsible"
+        ):
+            if level['exercises']:
+                for exercise in level['exercises']:
+                    yield Label(f"  ✓ {exercise}", classes="exercise_item")
+            else:
+                yield Label(f"  No exercises completed yet", classes="empty_label")
+
+
+class CollapsibleProblemClass(Static):
+    """Collapsible widget for a Bit-Systems problem class"""
+
+    def __init__(self, problem_class: Dict, class_idx: int, progress_data: ProgressData):
+        super().__init__()
+        self.problem_class = problem_class
+        self.class_idx = class_idx
+        self.progress_data = progress_data
+        self.expanded = (class_idx == 0)
+
+    def compose(self) -> ComposeResult:
+        pc = self.problem_class
+        solved = pc['exercises_solved']
+        total = pc['total_exercises']
+        percentage = int((solved / total * 100)) if total > 0 else 0
+        completed = pc['completed']
+
+        bar_length = 10
+        filled = int(bar_length * percentage / 100)
+        bar_str = "█" * filled + "░" * (bar_length - filled)
+
+        complete_mark = " ✓" if completed else ""
+
+        with Collapsible(
+            title=f"Class {pc['id']}: {pc['name']}{complete_mark} - {solved}/{total} [{bar_str}] {percentage}%",
+            collapsed=not self.expanded,
+            classes="class_collapsible"
+        ):
+            if pc['exercises']:
+                for exercise in pc['exercises']:
+                    yield Label(f"  ✓ {exercise}", classes="exercise_item")
+            else:
+                yield Label(f"  No exercises completed yet", classes="empty_label")
 
 
 class ViewSolutionsScreen(Screen):
@@ -295,32 +381,78 @@ class ViewSolutionsScreen(Screen):
 
 
 class SolveModeScreen(Screen):
-    """Full screen for spaced repetition practice"""
+    """Full screen for spaced repetition practice with split-screen editor"""
 
     BINDINGS = [
         Binding("g", "generate", "Generate"),
-        Binding("e", "edit", "Edit"),
-        Binding("v", "view", "View"),
-        Binding("n", "next", "Next"),
+        Binding("o", "open_url", "Open URL"),
+        Binding("ctrl+s", "save", "Save"),
         Binding("q", "back", "Back"),
     ]
+
+    CSS = """
+    SolveModeScreen #split_container {
+        height: 100%;
+    }
+
+    SolveModeScreen #problem_panel {
+        width: 50%;
+        height: 100%;
+        border-right: solid green;
+    }
+
+    SolveModeScreen #code_panel {
+        width: 50%;
+        height: 100%;
+    }
+
+    SolveModeScreen #problem_scroll {
+        height: 1fr;
+    }
+
+    SolveModeScreen #problem_text {
+        width: 100%;
+    }
+
+    SolveModeScreen #code_editor {
+        height: 1fr;
+    }
+
+    SolveModeScreen .section_title {
+        background: $boost;
+        padding: 1;
+        text-style: bold;
+    }
+    """
 
     def __init__(self, progress_data: ProgressData):
         super().__init__()
         self.progress_data = progress_data
         self.current_problem = None
-        self.current_problem_text = ""  # Track current display text
-        self.session_solutions = []  # List of (problem_name, file_path) tuples
+        self.current_solution_file = None
         self.temp_dir = Path(tempfile.mkdtemp(prefix="leetcode_solve_"))
 
     def compose(self) -> ComposeResult:
         yield Header()
 
-        with Container(id="solve_content"):
-            yield Label("Solve Mode - Spaced Repetition", classes="section_title")
-            yield Label("Press (g) to generate a random question from solved problems", id="solve_instructions")
-            with Container(id="problem_display"):
-                yield Label("", id="problem_text")
+        with Horizontal(id="split_container"):
+            # Left panel: Problem description
+            with Container(id="problem_panel"):
+                yield Label("Problem Description", classes="section_title")
+                with VerticalScroll(id="problem_scroll"):
+                    yield Label("Press (g) to generate a random question from solved problems", id="problem_text")
+
+            # Right panel: Code editor
+            with Container(id="code_panel"):
+                yield Label("Solution Editor (Python)", classes="section_title")
+                yield TextArea(
+                    text="# Write your solution here\n\n",
+                    language="python",
+                    theme="vscode_dark",
+                    show_line_numbers=True,
+                    tab_behavior="indent",
+                    id="code_editor"
+                )
 
         yield Footer()
 
@@ -329,83 +461,140 @@ class SolveModeScreen(Screen):
         solved_problems = self.progress_data.get_all_solved_problems()
 
         if not solved_problems:
-            # No solved problems yet
             problem_text = self.query_one("#problem_text", Label)
             problem_text.update("No solved problems found. Solve some problems first!")
             return
 
         # Pick random problem
-        problem_name, topic_name, phase_name, phase_id = random.choice(solved_problems)
+        problem_name, pattern, url, topic_name, phase_name, phase_id = random.choice(solved_problems)
         self.current_problem = {
             'name': problem_name,
+            'pattern': pattern,
+            'url': url,
             'topic': topic_name,
             'phase': phase_name,
             'phase_id': phase_id
         }
 
-        # Update display
-        self.current_problem_text = (
-            f"Problem: {problem_name}\n"
-            f"Topic: {topic_name}\n"
-            f"Phase: {phase_name}"
-        )
+        # Update problem description panel with text wrapping
         problem_text = self.query_one("#problem_text", Label)
-        problem_text.update(self.current_problem_text)
+        python_template = ""
 
-    def action_edit(self):
-        """Open vim editor for solution"""
-        # Determine filename
-        if self.current_problem:
-            # Clean problem name for filename (remove spaces, special chars)
-            problem_name = self.current_problem['name']
-            clean_name = problem_name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-            filename = f"{clean_name}.py"
+        if url:
+            problem_text.update("Fetching problem description...")
+            problem_data = fetch_problem_description(url)
+
+            if problem_data:
+                # Wrap text to fit left panel (approx 60 chars wide)
+                wrapped_desc = self.wrap_text(problem_data['description'], width=60)
+
+                display_text = f"{problem_data['title']}\n{'=' * 60}\n\n"
+                display_text += wrapped_desc
+                display_text += f"\n\nTopic: {topic_name} | Phase: {phase_name}"
+                if pattern:
+                    display_text += f"\nPattern: {pattern}"
+                display_text += "\n\nPress (o) to open in browser | Ctrl+S to save | (g) for next"
+                problem_text.update(display_text)
+
+                # Get code template if available
+                python_template = problem_data.get('code_template', '')
+            else:
+                fallback = f"Problem: {problem_name}\nTopic: {topic_name}\nPhase: {phase_name}\n"
+                if pattern:
+                    fallback += f"Pattern: {pattern}\n"
+                fallback += f"\nFailed to fetch description\nURL: {url}"
+                problem_text.update(fallback)
         else:
-            # No problem generated, use generic name
-            filename = "solution.py"
+            basic_info = f"Problem: {problem_name}\nTopic: {topic_name}\nPhase: {phase_name}\n"
+            if pattern:
+                basic_info += f"Pattern: {pattern}\n"
+            problem_text.update(basic_info)
 
-        # Create temp file path
-        file_path = self.temp_dir / filename
+        # Setup code editor with template
+        code_editor = self.query_one("#code_editor", TextArea)
+        clean_name = problem_name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        filename = f"{clean_name}.py"
+        self.current_solution_file = self.temp_dir / filename
 
-        # Check if this problem already has a solution file
-        existing_solution = next((sol for sol in self.session_solutions if sol[0] == filename), None)
-        if existing_solution:
-            file_path = Path(existing_solution[1])
+        # Load existing solution if available, otherwise create template
+        if self.current_solution_file.exists():
+            with open(self.current_solution_file, 'r') as f:
+                code_editor.text = f.read()
+        else:
+            template = f'"""\n{problem_name}\n\nTopic: {topic_name}\nPhase: {phase_name}\n'
+            if pattern:
+                template += f'Pattern: {pattern}\n'
+            template += '"""\n\n'
 
-        # Suspend the app to run vim
-        with self.app.suspend():
-            editor = subprocess.run(["vim", str(file_path)])
+            # Add LeetCode solution template if available
+            if python_template:
+                template += python_template + '\n\n'
+            else:
+                template += '# Write your solution here\n\n'
 
-        # If file exists and has content, track it
-        if file_path.exists() and file_path.stat().st_size > 0:
-            if not existing_solution:
-                self.session_solutions.append((filename, str(file_path)))
+            code_editor.text = template
 
-                # Only show saved message once (when first saved)
-                # Remove any existing saved message first
-                base_text = self.current_problem_text.split("\n\n[Solution saved")[0]
-                self.current_problem_text = f"{base_text}\n\n[Solution saved to: {filename}]"
-                problem_text = self.query_one("#problem_text", Label)
-                problem_text.update(self.current_problem_text)
+        # Focus the code editor
+        code_editor.focus()
 
-    def action_view(self):
-        """View solutions from this session"""
-        if not self.session_solutions:
-            self.current_problem_text = "No solutions saved in this session yet."
-            problem_text = self.query_one("#problem_text", Label)
-            problem_text.update(self.current_problem_text)
+    def wrap_text(self, text: str, width: int = 60) -> str:
+        """Wrap text to fit within specified width"""
+        lines = text.split('\n')
+        wrapped_lines = []
+
+        for line in lines:
+            if len(line) <= width:
+                wrapped_lines.append(line)
+            else:
+                # Split long lines at word boundaries
+                words = line.split()
+                current_line = ""
+                for word in words:
+                    if len(current_line) + len(word) + 1 <= width:
+                        current_line += (' ' + word if current_line else word)
+                    else:
+                        if current_line:
+                            wrapped_lines.append(current_line)
+                        current_line = word
+                if current_line:
+                    wrapped_lines.append(current_line)
+
+        return '\n'.join(wrapped_lines)
+
+    def action_open_url(self):
+        """Open problem URL in browser"""
+        if not self.current_problem or not self.current_problem.get('url'):
+            self.notify("No URL available for this problem.", severity="warning")
             return
 
-        # Push to interactive view screen
-        self.app.push_screen(ViewSolutionsScreen(self.session_solutions))
+        url = self.current_problem['url']
+        import webbrowser
+        webbrowser.open(url)
+        self.notify(f"Opened in browser: {url}")
 
-    def action_next(self):
-        """Generate next random question"""
-        self.action_generate()
+    def action_save(self):
+        """Save current solution to file"""
+        if not self.current_solution_file:
+            self.notify("No problem loaded. Generate a problem first.", severity="warning")
+            return
+
+        code_editor = self.query_one("#code_editor", TextArea)
+
+        # Save to file
+        with open(self.current_solution_file, 'w') as f:
+            f.write(code_editor.text)
+
+        self.notify(f"Saved to: {self.current_solution_file.name}", severity="information")
 
     def action_back(self):
         """Go back to main dashboard"""
-        # Clean up temp files
+        # Auto-save current solution before leaving
+        if self.current_solution_file:
+            code_editor = self.query_one("#code_editor", TextArea)
+            with open(self.current_solution_file, 'w') as f:
+                f.write(code_editor.text)
+
+        # Clean up temp files (optional - keep for later review)
         import shutil
         if self.temp_dir.exists():
             shutil.rmtree(self.temp_dir)
@@ -485,8 +674,9 @@ class DashboardScreen(Screen):
         meta = data['meta']
         leetcode = data['leetcode']
         systems = data['systems']
+        bit_systems = data.get('bit_systems', {})
 
-        # Stats header (compact) 
+        # Stats header (compact)
         with Container(id="stats_header"):
             yield Label(f"Interview Prep Progress Tracker")
             yield Label(f"Started: {meta['start_date']}\n")
@@ -517,6 +707,33 @@ class DashboardScreen(Screen):
             # Modules
             for i, module in enumerate(systems['modules']):
                 yield CollapsibleSystemsModule(module, i, self.progress_data)
+
+            # Bit-Systems section
+            if bit_systems:
+                yield Label("━━━ ━━━ BIT-SYSTEMS PROGRESS ━━━ ━━━", classes="section_title")
+
+                levels_completed = bit_systems.get('levels_completed', 0)
+                total_levels = bit_systems.get('total_levels', 8)
+                bit_pct = int((levels_completed / total_levels * 100)) if total_levels > 0 else 0
+
+                yield Label(f"Overall: {levels_completed}/{total_levels} levels complete ({bit_pct}%)", classes="overall_label")
+
+                bit_bar = ProgressBar(total=total_levels, show_eta=False, classes="overall_progress")
+                bit_bar.update(progress=levels_completed)
+                yield bit_bar
+
+                # The 8 Levels
+                yield Label("The 8 Levels:", classes="subsection_label")
+                for i, level in enumerate(bit_systems.get('levels', [])):
+                    yield CollapsibleBitLevel(level, i, self.progress_data)
+
+                # Problem Classes (if unlocked)
+                if bit_systems.get('problem_classes_unlocked', False):
+                    yield Label("🔓 Problem Classes (Interview Patterns):", classes="subsection_label")
+                    for i, pc in enumerate(bit_systems.get('problem_classes', [])):
+                        yield CollapsibleProblemClass(pc, i, self.progress_data)
+                else:
+                    yield Label("🔒 Problem Classes (Complete all 8 levels to unlock)", classes="locked_label")
 
         yield Footer()
 
