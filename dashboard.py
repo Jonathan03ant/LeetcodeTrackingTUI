@@ -98,6 +98,42 @@ class ProgressData:
                     solved.append((problem_name, pattern, url, topic_name, phase_name, phase_id))
         return solved
 
+    def get_days_since_review(self, phase_id: int, topic_name: str, problem_name: str) -> int:
+        """Get days since last review. Returns 100 if never reviewed."""
+        from datetime import datetime
+
+        for phase in self.data['leetcode']['phases']:
+            if phase['id'] == phase_id:
+                for topic in phase['topics']:
+                    if topic['name'] == topic_name:
+                        for problem in topic['problems']:
+                            if isinstance(problem, dict) and problem.get('name') == problem_name:
+                                last_reviewed = problem.get('last_reviewed')
+                                if not last_reviewed:
+                                    return 100  # Never reviewed
+
+                                # Calculate days since last review
+                                last_date = datetime.strptime(last_reviewed, "%Y-%m-%d")
+                                today = datetime.now()
+                                days = (today - last_date).days
+                                return max(days, 1)  # Minimum 1 day
+        return 100  # Not found or never reviewed
+
+    def update_last_reviewed(self, phase_id: int, topic_name: str, problem_name: str):
+        """Update last_reviewed field for a problem"""
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        for phase in self.data['leetcode']['phases']:
+            if phase['id'] == phase_id:
+                for topic in phase['topics']:
+                    if topic['name'] == topic_name:
+                        for problem in topic['problems']:
+                            if isinstance(problem, dict) and problem.get('name') == problem_name:
+                                problem['last_reviewed'] = today
+                                self.save()
+                                return
+        # If not found, problem might be old string format - no update needed
+
 
 class CollapsiblePhase(Static):
     """Collapsible widget for a LeetCode phase"""
@@ -385,6 +421,8 @@ class SolveModeScreen(Screen):
 
     BINDINGS = [
         Binding("g", "generate", "Generate"),
+        Binding("p", "problem", "Problem"),
+        Binding("s", "solutions", "Solutions"),
         Binding("o", "open_url", "Open URL"),
         Binding("ctrl+s", "save", "Save"),
         Binding("q", "back", "Back"),
@@ -408,6 +446,7 @@ class SolveModeScreen(Screen):
 
     SolveModeScreen #problem_scroll {
         height: 1fr;
+        padding: 1 2;
     }
 
     SolveModeScreen #problem_text {
@@ -429,8 +468,10 @@ class SolveModeScreen(Screen):
         super().__init__()
         self.progress_data = progress_data
         self.current_problem = None
+        self.current_problem_text = ""  # Store problem description for toggle
         self.current_solution_file = None
         self.temp_dir = Path(tempfile.mkdtemp(prefix="leetcode_solve_"))
+        self.last_problem_name = None  # Track last shown problem to avoid immediate repeats
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -451,13 +492,20 @@ class SolveModeScreen(Screen):
                     theme="vscode_dark",
                     show_line_numbers=True,
                     tab_behavior="indent",
+                    soft_wrap=False,
                     id="code_editor"
                 )
 
         yield Footer()
 
+    def on_mount(self):
+        """Configure editor after mounting"""
+        code_editor = self.query_one("#code_editor", TextArea)
+        code_editor.indent_width = 4
+        code_editor.indent_type = "spaces"
+
     def action_generate(self):
-        """Generate random question from solved problems"""
+        """Generate random question from solved problems with weighted selection"""
         solved_problems = self.progress_data.get_all_solved_problems()
 
         if not solved_problems:
@@ -465,8 +513,32 @@ class SolveModeScreen(Screen):
             problem_text.update("No solved problems found. Solve some problems first!")
             return
 
-        # Pick random problem
-        problem_name, pattern, url, topic_name, phase_name, phase_id = random.choice(solved_problems)
+        # Filter out last shown problem to avoid immediate repeats
+        candidates = solved_problems
+        if self.last_problem_name and len(solved_problems) > 1:
+            candidates = [p for p in solved_problems if p[0] != self.last_problem_name]
+
+        # Weighted random selection based on days since last review
+        weights = []
+        for problem in candidates:
+            problem_name, pattern, url, topic_name, phase_name, phase_id = problem
+            days_since_review = self.progress_data.get_days_since_review(phase_id, topic_name, problem_name)
+
+            # Weight calculation:
+            # - Never reviewed: weight = 100 (highest priority)
+            # - 1 day ago: weight = 1
+            # - 7 days ago: weight = 7
+            # - Recently reviewed problems have lower chance
+            weight = days_since_review if days_since_review > 0 else 100
+            weights.append(weight)
+
+        # Pick problem using weighted random
+        problem_name, pattern, url, topic_name, phase_name, phase_id = random.choices(candidates, weights=weights)[0]
+        self.last_problem_name = problem_name  # Remember for next generation
+
+        # Mark as reviewed today
+        self.progress_data.update_last_reviewed(phase_id, topic_name, problem_name)
+
         self.current_problem = {
             'name': problem_name,
             'pattern': pattern,
@@ -496,6 +568,9 @@ class SolveModeScreen(Screen):
                 display_text += "\n\nPress (o) to open in browser | Ctrl+S to save | (g) for next"
                 problem_text.update(display_text)
 
+                # Store for toggle
+                self.current_problem_text = display_text
+
                 # Get code template if available
                 python_template = problem_data.get('code_template', '')
             else:
@@ -504,11 +579,13 @@ class SolveModeScreen(Screen):
                     fallback += f"Pattern: {pattern}\n"
                 fallback += f"\nFailed to fetch description\nURL: {url}"
                 problem_text.update(fallback)
+                self.current_problem_text = fallback
         else:
             basic_info = f"Problem: {problem_name}\nTopic: {topic_name}\nPhase: {phase_name}\n"
             if pattern:
                 basic_info += f"Pattern: {pattern}\n"
             problem_text.update(basic_info)
+            self.current_problem_text = basic_info
 
         # Setup code editor with template
         code_editor = self.query_one("#code_editor", TextArea)
@@ -534,9 +611,6 @@ class SolveModeScreen(Screen):
 
             code_editor.text = template
 
-        # Focus the code editor
-        code_editor.focus()
-
     def wrap_text(self, text: str, width: int = 60) -> str:
         """Wrap text to fit within specified width"""
         lines = text.split('\n')
@@ -561,6 +635,54 @@ class SolveModeScreen(Screen):
 
         return '\n'.join(wrapped_lines)
 
+    def extract_slug_from_url(self, url: str) -> str:
+        """Extract slug from LeetCode URL and convert to filename"""
+        # https://leetcode.com/problems/two-sum/ -> two-sum -> two_sum
+        parts = url.rstrip('/').split('/')
+        slug = parts[-1] if parts else "unknown"
+        return slug.replace('-', '_')
+
+    def action_problem(self):
+        """Show problem description (toggle from solutions)"""
+        if not self.current_problem_text:
+            self.notify("No problem loaded", severity="warning")
+            return
+
+        problem_text = self.query_one("#problem_text", Label)
+        problem_text.update(self.current_problem_text)
+        self.notify("Showing problem", severity="information")
+
+    def action_solutions(self):
+        """Show solutions for current problem"""
+        if not self.current_problem:
+            self.notify("Generate a problem first!", severity="warning")
+            return
+
+        # Extract slug from URL
+        url = self.current_problem.get('url', '')
+        if not url:
+            self.notify("No URL for this problem", severity="warning")
+            return
+
+        slug = self.extract_slug_from_url(url)
+
+        # Find solution file
+        solutions_dir = Path(__file__).parent.parent / "LEETCODE" / "solutions"
+        solution_path = solutions_dir / f"{slug}.py"
+
+        if not solution_path.exists():
+            self.notify(f"No solution found: {slug}.py", severity="warning")
+            return
+
+        # Read and display in left panel
+        with open(solution_path) as f:
+            solution_text = f.read()
+
+        problem_text = self.query_one("#problem_text", Label)
+        problem_text.update(solution_text)
+
+        self.notify("Showing solution", severity="information")
+
     def action_open_url(self):
         """Open problem URL in browser"""
         if not self.current_problem or not self.current_problem.get('url'):
@@ -573,31 +695,34 @@ class SolveModeScreen(Screen):
         self.notify(f"Opened in browser: {url}")
 
     def action_save(self):
-        """Save current solution to file"""
-        if not self.current_solution_file:
+        """Save current solution to persistent file"""
+        if not self.current_problem:
             self.notify("No problem loaded. Generate a problem first.", severity="warning")
             return
 
         code_editor = self.query_one("#code_editor", TextArea)
 
-        # Save to file
-        with open(self.current_solution_file, 'w') as f:
+        # Extract slug from URL for filename
+        url = self.current_problem.get('url', '')
+        if not url:
+            self.notify("No URL for this problem", severity="warning")
+            return
+
+        slug = self.extract_slug_from_url(url)
+
+        # Save to persistent solutions directory
+        solutions_dir = Path(__file__).parent.parent / "LEETCODE" / "solutions"
+        solutions_dir.mkdir(parents=True, exist_ok=True)
+
+        solution_path = solutions_dir / f"{slug}.py"
+
+        with open(solution_path, 'w') as f:
             f.write(code_editor.text)
 
-        self.notify(f"Saved to: {self.current_solution_file.name}", severity="information")
+        self.notify(f"Saved: {slug}.py", severity="information")
 
     def action_back(self):
         """Go back to main dashboard"""
-        # Auto-save current solution before leaving
-        if self.current_solution_file:
-            code_editor = self.query_one("#code_editor", TextArea)
-            with open(self.current_solution_file, 'w') as f:
-                f.write(code_editor.text)
-
-        # Clean up temp files (optional - keep for later review)
-        import shutil
-        if self.temp_dir.exists():
-            shutil.rmtree(self.temp_dir)
         self.app.pop_screen()
 
 
