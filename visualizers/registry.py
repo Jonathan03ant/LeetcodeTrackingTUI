@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from .state import ArrayState
-from .traces.arrays import trace_sort_colors
+from .traces.arrays import trace_move_zeroes, trace_sort_colors
 
 
 TraceFunction = Callable[[list[int]], Iterable[ArrayState]]
@@ -24,6 +24,11 @@ VISUALIZERS: dict[str, ArrayVisualizerSpec] = {
         title="Sort Colors — Dutch National Flag",
         default_values=(2, 0, 2, 1, 1, 0),
         trace=trace_sort_colors,
+    ),
+    "move_zeroes": ArrayVisualizerSpec(
+        title="Move Zeroes — Slow/Fast Pointers",
+        default_values=(0, 1, 0, 3, 12),
+        trace=trace_move_zeroes,
     ),
 }
 

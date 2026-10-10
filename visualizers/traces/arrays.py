@@ -69,3 +69,81 @@ def trace_sort_colors(values: list[int]) -> Iterator[ArrayState]:
             )
 
         yield _sort_colors_state(nums, low, mid, high, message)
+
+
+def trace_move_zeroes(values: list[int]) -> Iterator[ArrayState]:
+    """Yield slow/fast pointer states for Move Zeroes."""
+    nums = values.copy()
+    slow = 0
+
+    yield ArrayState(
+        values=tuple(nums),
+        pointers=(
+            ("slow", slow),
+            ("fast", 0),
+        ),
+        ranges=(
+            ArrayRange(
+                0,
+                len(nums) - 1,
+                "unprocessed",
+                "bold white on dark_red",
+            ),
+        ),
+        highlights=frozenset({0}) if nums else frozenset(),
+        message="Start: slow marks where the next non-zero value belongs.",
+    )
+
+    for fast in range(len(nums)):
+        current = nums[fast]
+
+        if current != 0:
+            old_slow = slow
+            nums[slow], nums[fast] = nums[fast], nums[slow]
+            slow += 1
+
+            if old_slow == fast:
+                message = (
+                    f"nums[{fast}] is {current}, already in the compacted "
+                    "position; advance slow."
+                )
+            else:
+                message = (
+                    f"nums[{fast}] is {current}, so swap indices "
+                    f"{old_slow} and {fast}; advance slow."
+                )
+        else:
+            message = (
+                f"nums[{fast}] is 0, so leave it for now; "
+                "slow does not move."
+            )
+
+        yield ArrayState(
+            values=tuple(nums),
+            pointers=(
+                ("slow", slow),
+                ("fast", fast),
+            ),
+            ranges=(
+                ArrayRange(
+                    0,
+                    slow - 1,
+                    "compacted non-zeroes",
+                    "bold white on dark_green",
+                ),
+                ArrayRange(
+                    slow,
+                    fast,
+                    "encountered zeroes",
+                    "bold black on bright_yellow",
+                ),
+                ArrayRange(
+                    fast + 1,
+                    len(nums) - 1,
+                    "unprocessed",
+                    "bold white on dark_red",
+                ),
+            ),
+            highlights=frozenset({fast}),
+            message=message,
+        )
