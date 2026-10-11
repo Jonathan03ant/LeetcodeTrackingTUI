@@ -1,2 +1,8 @@
 textual>=0.11.0
 rich>=13.0.0
+requests
+beautifulsoup4
+tree-sitter
+tree-sitter-c
+tree-sitter-cpp
+tree-sitter-python

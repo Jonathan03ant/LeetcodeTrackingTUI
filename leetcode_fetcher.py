@@ -14,7 +14,10 @@ def extract_problem_slug(url: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def fetch_problem_description(url: str) -> Optional[Dict[str, str]]:
+def fetch_problem_description(
+    url: str,
+    language_slug: str = "python3",
+) -> Optional[Dict[str, str]]:
     """
     Fetch problem description from LeetCode using GraphQL API
 
@@ -81,19 +84,19 @@ def fetch_problem_description(url: str) -> Optional[Dict[str, str]]:
             content = re.sub(r'\n\s*\n', '\n\n', content)
             content = content.strip()
 
-            # Extract Python3 code snippet
-            python_code = ""
+            # Extract the requested language's starter snippet.
+            code_template = ""
             if 'codeSnippets' in question:
                 for snippet in question['codeSnippets']:
-                    if snippet['langSlug'] == 'python3':
-                        python_code = snippet['code']
+                    if snippet['langSlug'] == language_slug:
+                        code_template = snippet['code']
                         break
 
             return {
                 'title': f"#{question['questionId']}. {question['title']} [{question['difficulty']}]",
                 'description': content,
                 'url': url,
-                'code_template': python_code
+                'code_template': code_template
             }
 
         return None

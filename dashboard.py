@@ -6,7 +6,6 @@ Interview Prep Progress Tracker - Interactive Dashboard
 import json
 import random
 import subprocess
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
@@ -22,6 +21,44 @@ from textual.widgets import (
 from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
 from textual import on
+from tree_sitter import Language
+import tree_sitter_c
+import tree_sitter_cpp
+
+from visualizers import ArrayVisualizerScreen, get_visualizer
+
+
+LANGUAGES = {
+    "cpp": {
+        "display_name": "C++",
+        "extension": ".cpp",
+        "leetcode_slug": "cpp",
+        "editor_language": "cpp",
+        "comment_prefix": "//",
+    },
+    "python": {
+        "display_name": "Python",
+        "extension": ".py",
+        "leetcode_slug": "python3",
+        "editor_language": "python",
+        "comment_prefix": "#",
+    },
+}
+LANGUAGE_NAMES = {
+    language: config["display_name"] for language, config in LANGUAGES.items()
+}
+DEFAULT_LANGUAGE = "cpp"
+
+
+def register_cpp_highlighting(editor: TextArea) -> None:
+    """Register combined C and C++ Tree-sitter rules on an editor."""
+    cpp_language = Language(tree_sitter_cpp.language())
+    highlight_query = (
+        tree_sitter_c.HIGHLIGHTS_QUERY
+        + "\n"
+        + tree_sitter_cpp.HIGHLIGHTS_QUERY
+    )
+    editor.register_language("cpp", cpp_language, highlight_query)
 
 
 class ProgressData:
@@ -44,6 +81,18 @@ class ProgressData:
         self.data['meta']['last_updated'] = datetime.now().strftime("%Y-%m-%d")
         with open(self.filepath, 'w') as f:
             json.dump(self.data, f, indent=2)
+
+    def get_preferred_language(self) -> str:
+        """Return the preferred solution language, defaulting to C++."""
+        language = self.data["meta"].get("preferred_language", DEFAULT_LANGUAGE)
+        return language if language in LANGUAGES else DEFAULT_LANGUAGE
+
+    def set_preferred_language(self, language: str) -> None:
+        """Persist the preferred solution language."""
+        if language not in LANGUAGES:
+            raise ValueError(f"Unsupported language: {language}")
+        self.data["meta"]["preferred_language"] = language
+        self.save()
 
     def add_problem(self, phase_id: int, topic_name: str, problem_name: str):
         """Add a solved problem to a specific topic"""
@@ -416,14 +465,242 @@ class ViewSolutionsScreen(Screen):
         self.app.pop_screen()
 
 
+class SearchProblemScreen(ModalScreen[Optional[Tuple]]):
+    """Find and select a tracked LeetCode problem by name."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    CSS = """
+    SearchProblemScreen {
+        align: center middle;
+    }
+
+    SearchProblemScreen #search_dialog {
+        width: 72;
+        height: auto;
+        max-height: 26;
+        padding: 1 2;
+        border: round $accent;
+        background: $surface;
+    }
+
+    SearchProblemScreen #search_title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    SearchProblemScreen #search_results {
+        height: auto;
+        min-height: 5;
+        max-height: 12;
+        margin: 1 0;
+    }
+
+    SearchProblemScreen #search_buttons {
+        height: 3;
+        align-horizontal: right;
+    }
+
+    SearchProblemScreen #search_buttons Button {
+        width: auto;
+        min-width: 12;
+        margin-left: 1;
+    }
+    """
+
+    def __init__(self, problems: List[Tuple]):
+        super().__init__()
+        self.problems = problems
+
+    def compose(self) -> ComposeResult:
+        yield Container(
+            Label("Search tracked problems", id="search_title"),
+            Input(placeholder="Example: Move Zeroes", id="search_input"),
+            Label("Type part of a problem name.", id="search_results"),
+            Horizontal(
+                Button("Load", id="search_load", variant="primary"),
+                Button("Cancel", id="search_cancel"),
+                id="search_buttons",
+            ),
+            id="search_dialog",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#search_input", Input).focus()
+
+    def _matches(self, query: str) -> List[Tuple]:
+        normalized = query.strip().lower()
+        if not normalized:
+            return []
+        return [problem for problem in self.problems if normalized in problem[0].lower()]
+
+    def _show_matches(self, query: str) -> None:
+        results = self.query_one("#search_results", Label)
+        matches = self._matches(query)
+        if not query.strip():
+            results.update("Type part of a problem name.")
+        elif not matches:
+            results.update("No tracked problems match.")
+        else:
+            preview = [
+                f"{problem[0]}  ·  {problem[3]}  ·  {problem[4]}"
+                for problem in matches[:8]
+            ]
+            if len(matches) > 8:
+                preview.append(f"...and {len(matches) - 8} more")
+            results.update("\n".join(preview))
+
+    def _load_match(self) -> None:
+        query = self.query_one("#search_input", Input).value.strip()
+        matches = self._matches(query)
+        exact_match = next(
+            (problem for problem in matches if problem[0].lower() == query.lower()),
+            None,
+        )
+
+        if exact_match:
+            self.dismiss(exact_match)
+        elif len(matches) == 1:
+            self.dismiss(matches[0])
+        elif not matches:
+            self.query_one("#search_results", Label).update(
+                "No tracked problems match."
+            )
+        else:
+            self.query_one("#search_results", Label).update(
+                f"{len(matches)} problems match. Type a more specific name.\n\n"
+                + "\n".join(problem[0] for problem in matches[:8])
+            )
+
+    @on(Input.Changed, "#search_input")
+    def search_changed(self, event: Input.Changed) -> None:
+        self._show_matches(event.value)
+
+    @on(Input.Submitted, "#search_input")
+    def search_submitted(self) -> None:
+        self._load_match()
+
+    @on(Button.Pressed, "#search_load")
+    def load_pressed(self) -> None:
+        self._load_match()
+
+    @on(Button.Pressed, "#search_cancel")
+    def cancel_pressed(self) -> None:
+        self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class SolutionPreviewScreen(ModalScreen[None]):
+    """Read-only, syntax-highlighted view of a saved solution."""
+
+    BINDINGS = [
+        Binding("s", "close", "Close", priority=True),
+        Binding("q", "close", "Close", priority=True),
+        Binding("escape", "close", "Close", priority=True),
+    ]
+
+    CSS = """
+    SolutionPreviewScreen {
+        align: center middle;
+    }
+
+    SolutionPreviewScreen #solution_preview_dialog {
+        width: 90%;
+        height: 90%;
+        padding: 1 2;
+        border: round $accent;
+        background: $surface;
+    }
+
+    SolutionPreviewScreen #solution_preview_title {
+        height: 1;
+        text-style: bold;
+    }
+
+    SolutionPreviewScreen #solution_preview_path {
+        height: 1;
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    SolutionPreviewScreen #solution_preview_editor {
+        height: 1fr;
+    }
+
+    SolutionPreviewScreen #solution_preview_buttons {
+        height: 3;
+        align-horizontal: right;
+        margin-top: 1;
+    }
+
+    SolutionPreviewScreen #solution_preview_close {
+        width: auto;
+        min-width: 12;
+    }
+    """
+
+    def __init__(
+        self,
+        problem_name: str,
+        solution_path: Path,
+        language: str,
+    ):
+        super().__init__()
+        self.problem_name = problem_name
+        self.solution_path = solution_path
+        self.language = language
+
+    def compose(self) -> ComposeResult:
+        config = LANGUAGES[self.language]
+        editor = TextArea(
+            text=self.solution_path.read_text(),
+            language=None,
+            theme="vscode_dark",
+            read_only=True,
+            show_line_numbers=True,
+            soft_wrap=False,
+            id="solution_preview_editor",
+        )
+        register_cpp_highlighting(editor)
+        editor.language = config["editor_language"]
+
+        yield Container(
+            Label(
+                f"Saved Solution — {self.problem_name} ({config['display_name']})",
+                id="solution_preview_title",
+            ),
+            Label(str(self.solution_path), id="solution_preview_path"),
+            editor,
+            Horizontal(
+                Button("Close", id="solution_preview_close", variant="primary"),
+                id="solution_preview_buttons",
+            ),
+            id="solution_preview_dialog",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#solution_preview_editor", TextArea).focus()
+
+    @on(Button.Pressed, "#solution_preview_close")
+    def close_pressed(self) -> None:
+        self.dismiss(None)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 class SolveModeScreen(Screen):
     """Full screen for spaced repetition practice with split-screen editor"""
 
     BINDINGS = [
         Binding("g", "generate", "Generate"),
-        Binding("p", "problem", "Problem"),
+        Binding("ctrl+f", "search", "Search", priority=True),
+        Binding("l", "language", "Language"),
         Binding("s", "solutions", "Solutions"),
         Binding("o", "open_url", "Open URL"),
+        Binding("v", "visualize", "Visualize"),
         Binding("ctrl+s", "save", "Save"),
         Binding("q", "back", "Back"),
     ]
@@ -470,7 +747,7 @@ class SolveModeScreen(Screen):
         self.current_problem = None
         self.current_problem_text = ""  # Store problem description for toggle
         self.current_solution_file = None
-        self.temp_dir = Path(tempfile.mkdtemp(prefix="leetcode_solve_"))
+        self.current_editor_language = self.progress_data.get_preferred_language()
         self.last_problem_name = None  # Track last shown problem to avoid immediate repeats
 
     def compose(self) -> ComposeResult:
@@ -485,16 +762,24 @@ class SolveModeScreen(Screen):
 
             # Right panel: Code editor
             with Container(id="code_panel"):
-                yield Label("Solution Editor (Python)", classes="section_title")
-                yield TextArea(
-                    text="# Write your solution here\n\n",
-                    language="python",
+                preferred_language = self.progress_data.get_preferred_language()
+                yield Label(
+                    f"Solution Editor ({LANGUAGE_NAMES[preferred_language]})",
+                    id="solution_editor_title",
+                    classes="section_title",
+                )
+                code_editor = TextArea(
+                    text=self._empty_editor_text(preferred_language),
+                    language=None,
                     theme="vscode_dark",
                     show_line_numbers=True,
                     tab_behavior="indent",
                     soft_wrap=False,
                     id="code_editor"
                 )
+                register_cpp_highlighting(code_editor)
+                code_editor.language = LANGUAGES[preferred_language]["editor_language"]
+                yield code_editor
 
         yield Footer()
 
@@ -533,7 +818,53 @@ class SolveModeScreen(Screen):
             weights.append(weight)
 
         # Pick problem using weighted random
-        problem_name, pattern, url, topic_name, phase_name, phase_id = random.choices(candidates, weights=weights)[0]
+        selected_problem = random.choices(candidates, weights=weights)[0]
+        self._load_problem(selected_problem)
+
+    def action_search(self):
+        """Search solved problems by name and load the selected problem."""
+        solved_problems = self.progress_data.get_all_solved_problems()
+        if not solved_problems:
+            self.notify("No solved problems found", severity="warning")
+            return
+
+        def handle_result(problem: Optional[Tuple]):
+            if problem:
+                self._load_problem(problem)
+
+        self.app.push_screen(SearchProblemScreen(solved_problems), handle_result)
+
+    def action_language(self):
+        """Choose the language to use when the next problem is loaded."""
+        current_language = self.progress_data.get_preferred_language()
+
+        def handle_result(language: Optional[str]):
+            if language:
+                self.progress_data.set_preferred_language(language)
+                language_name = LANGUAGE_NAMES[language]
+
+                if self.current_problem:
+                    self.notify(
+                        f"Preferred language set to {language_name}; applies when you load the next problem",
+                        severity="information",
+                    )
+                else:
+                    self.current_editor_language = language
+                    self._configure_editor_language(language)
+                    self.query_one("#code_editor", TextArea).text = self._empty_editor_text(language)
+                    self.notify(
+                        f"Preferred language set to {language_name}",
+                        severity="information",
+                    )
+
+        self.app.push_screen(
+            LanguagePreferenceScreen(current_language),
+            handle_result,
+        )
+
+    def _load_problem(self, problem: Tuple):
+        """Load a selected problem into Solve mode."""
+        problem_name, pattern, url, topic_name, phase_name, phase_id = problem
         self.last_problem_name = problem_name  # Remember for next generation
 
         # Mark as reviewed today
@@ -548,13 +879,21 @@ class SolveModeScreen(Screen):
             'phase_id': phase_id
         }
 
+        language = self.progress_data.get_preferred_language()
+        language_config = LANGUAGES[language]
+        self.current_editor_language = language
+        self._configure_editor_language(language)
+
         # Update problem description panel with text wrapping
         problem_text = self.query_one("#problem_text", Label)
-        python_template = ""
+        code_template = ""
 
         if url:
             problem_text.update("Fetching problem description...")
-            problem_data = fetch_problem_description(url)
+            problem_data = fetch_problem_description(
+                url,
+                language_config["leetcode_slug"],
+            )
 
             if problem_data:
                 # Wrap text to fit left panel (approx 60 chars wide)
@@ -572,7 +911,7 @@ class SolveModeScreen(Screen):
                 self.current_problem_text = display_text
 
                 # Get code template if available
-                python_template = problem_data.get('code_template', '')
+                code_template = problem_data.get('code_template', '')
             else:
                 fallback = f"Problem: {problem_name}\nTopic: {topic_name}\nPhase: {phase_name}\n"
                 if pattern:
@@ -589,27 +928,67 @@ class SolveModeScreen(Screen):
 
         # Setup code editor with template
         code_editor = self.query_one("#code_editor", TextArea)
-        clean_name = problem_name.replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-        filename = f"{clean_name}.py"
-        self.current_solution_file = self.temp_dir / filename
+        slug = self.extract_slug_from_url(url) if url else self.slugify_name(problem_name)
+        solutions_dir = Path(__file__).parent.parent / "LEETCODE" / "solutions"
+        self.current_solution_file = solutions_dir / f"{slug}{language_config['extension']}"
 
         # Load existing solution if available, otherwise create template
         if self.current_solution_file.exists():
-            with open(self.current_solution_file, 'r') as f:
-                code_editor.text = f.read()
+            code_editor.text = self.current_solution_file.read_text()
         else:
-            template = f'"""\n{problem_name}\n\nTopic: {topic_name}\nPhase: {phase_name}\n'
-            if pattern:
-                template += f'Pattern: {pattern}\n'
-            template += '"""\n\n'
+            code_editor.text = self.build_solution_template(
+                language,
+                problem_name,
+                topic_name,
+                phase_name,
+                pattern,
+                code_template,
+            )
 
-            # Add LeetCode solution template if available
-            if python_template:
-                template += python_template + '\n\n'
-            else:
-                template += '# Write your solution here\n\n'
+    def _empty_editor_text(self, language: str) -> str:
+        """Return a language-appropriate empty editor prompt."""
+        prefix = LANGUAGES[language]["comment_prefix"]
+        return f"{prefix} Load a problem to start solving\n"
 
-            code_editor.text = template
+    def _configure_editor_language(self, language: str) -> None:
+        """Update the editor label and its currently available highlighter."""
+        config = LANGUAGES[language]
+        self.query_one("#solution_editor_title", Label).update(
+            f"Solution Editor ({config['display_name']})"
+        )
+        self.query_one("#code_editor", TextArea).language = config["editor_language"]
+
+    def build_solution_template(
+        self,
+        language: str,
+        problem_name: str,
+        topic_name: str,
+        phase_name: str,
+        pattern: str,
+        code_template: str,
+    ) -> str:
+        """Build a small language-appropriate header plus LeetCode starter code."""
+        prefix = LANGUAGES[language]["comment_prefix"]
+        header = [
+            f"{prefix} {problem_name}",
+            f"{prefix} Topic: {topic_name}",
+            f"{prefix} Phase: {phase_name}",
+        ]
+        if pattern:
+            header.append(f"{prefix} Pattern: {pattern}")
+
+        body = code_template.strip() or f"{prefix} Write your solution here"
+        return "\n".join(header) + "\n\n" + body + "\n"
+
+    def slugify_name(self, problem_name: str) -> str:
+        """Create a stable solution filename when a problem has no URL."""
+        return (
+            problem_name.lower()
+            .replace(" ", "_")
+            .replace("(", "")
+            .replace(")", "")
+            .replace("/", "_")
+        )
 
     def wrap_text(self, text: str, width: int = 60) -> str:
         """Wrap text to fit within specified width"""
@@ -642,46 +1021,30 @@ class SolveModeScreen(Screen):
         slug = parts[-1] if parts else "unknown"
         return slug.replace('-', '_')
 
-    def action_problem(self):
-        """Show problem description (toggle from solutions)"""
-        if not self.current_problem_text:
-            self.notify("No problem loaded", severity="warning")
-            return
-
-        problem_text = self.query_one("#problem_text", Label)
-        problem_text.update(self.current_problem_text)
-        self.notify("Showing problem", severity="information")
-
     def action_solutions(self):
-        """Show solutions for current problem"""
+        """Open the current problem's saved solution in a read-only modal."""
         if not self.current_problem:
             self.notify("Generate a problem first!", severity="warning")
             return
 
-        # Extract slug from URL
-        url = self.current_problem.get('url', '')
-        if not url:
-            self.notify("No URL for this problem", severity="warning")
+        if self.current_solution_file is None:
+            self.notify("No solution file is associated with this problem", severity="warning")
             return
 
-        slug = self.extract_slug_from_url(url)
-
-        # Find solution file
-        solutions_dir = Path(__file__).parent.parent / "LEETCODE" / "solutions"
-        solution_path = solutions_dir / f"{slug}.py"
-
-        if not solution_path.exists():
-            self.notify(f"No solution found: {slug}.py", severity="warning")
+        if not self.current_solution_file.exists():
+            self.notify(
+                f"No saved solution found: {self.current_solution_file.name}",
+                severity="warning",
+            )
             return
 
-        # Read and display in left panel
-        with open(solution_path) as f:
-            solution_text = f.read()
-
-        problem_text = self.query_one("#problem_text", Label)
-        problem_text.update(solution_text)
-
-        self.notify("Showing solution", severity="information")
+        self.app.push_screen(
+            SolutionPreviewScreen(
+                self.current_problem["name"],
+                self.current_solution_file,
+                self.current_editor_language,
+            )
+        )
 
     def action_open_url(self):
         """Open problem URL in browser"""
@@ -694,6 +1057,31 @@ class SolveModeScreen(Screen):
         webbrowser.open(url)
         self.notify(f"Opened in browser: {url}")
 
+    def action_visualize(self):
+        """Open an interactive visualization for the current problem."""
+        if not self.current_problem:
+            self.notify("Generate a problem first!", severity="warning")
+            return
+
+        url = self.current_problem.get("url", "")
+        if not url:
+            self.notify("This problem has no URL/slug", severity="warning")
+            return
+
+        slug = self.extract_slug_from_url(url)
+        visualizer = get_visualizer(slug)
+        if visualizer is None:
+            self.notify("No visualizer is available for this problem yet", severity="warning")
+            return
+
+        self.app.push_screen(
+            ArrayVisualizerScreen(
+                visualizer.title,
+                visualizer.trace,
+                visualizer.default_values,
+            )
+        )
+
     def action_save(self):
         """Save current solution to persistent file"""
         if not self.current_problem:
@@ -702,24 +1090,14 @@ class SolveModeScreen(Screen):
 
         code_editor = self.query_one("#code_editor", TextArea)
 
-        # Extract slug from URL for filename
-        url = self.current_problem.get('url', '')
-        if not url:
-            self.notify("No URL for this problem", severity="warning")
+        if self.current_solution_file is None:
+            self.notify("No solution file is associated with this problem", severity="warning")
             return
 
-        slug = self.extract_slug_from_url(url)
+        self.current_solution_file.parent.mkdir(parents=True, exist_ok=True)
+        self.current_solution_file.write_text(code_editor.text)
 
-        # Save to persistent solutions directory
-        solutions_dir = Path(__file__).parent.parent / "LEETCODE" / "solutions"
-        solutions_dir.mkdir(parents=True, exist_ok=True)
-
-        solution_path = solutions_dir / f"{slug}.py"
-
-        with open(solution_path, 'w') as f:
-            f.write(code_editor.text)
-
-        self.notify(f"Saved: {slug}.py", severity="information")
+        self.notify(f"Saved: {self.current_solution_file.name}", severity="information")
 
     def action_back(self):
         """Go back to main dashboard"""
@@ -776,6 +1154,85 @@ class AddProblemScreen(ModalScreen[bool]):
     def cancel(self):
         """Handle cancel button press"""
         self.dismiss(False)
+
+
+class LanguagePreferenceScreen(ModalScreen[Optional[str]]):
+    """Choose the default language used for solutions."""
+
+    BINDINGS = [
+        Binding("c", "choose_cpp", "C++"),
+        Binding("p", "choose_python", "Python"),
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    CSS = """
+    LanguagePreferenceScreen {
+        align: center middle;
+    }
+
+    LanguagePreferenceScreen #language_dialog {
+        width: 52;
+        height: auto;
+        padding: 1 2;
+        border: round $accent;
+        background: $surface;
+    }
+
+    LanguagePreferenceScreen #language_title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    LanguagePreferenceScreen #language_buttons {
+        height: 3;
+        align-horizontal: center;
+    }
+
+    LanguagePreferenceScreen #language_buttons Button {
+        width: auto;
+        min-width: 13;
+        margin: 0 1;
+    }
+    """
+
+    def __init__(self, current_language: str):
+        super().__init__()
+        self.current_language = current_language
+
+    def compose(self) -> ComposeResult:
+        current_name = LANGUAGE_NAMES[self.current_language]
+        yield Container(
+            Label("Preferred solution language", id="language_title"),
+            Label(f"Current: {current_name}"),
+            Horizontal(
+                Button("C++", id="language_cpp", variant="primary"),
+                Button("Python", id="language_python"),
+                Button("Cancel", id="language_cancel"),
+                id="language_buttons",
+            ),
+            id="language_dialog",
+        )
+
+    @on(Button.Pressed, "#language_cpp")
+    def cpp_pressed(self) -> None:
+        self.dismiss("cpp")
+
+    @on(Button.Pressed, "#language_python")
+    def python_pressed(self) -> None:
+        self.dismiss("python")
+
+    @on(Button.Pressed, "#language_cancel")
+    def cancel_pressed(self) -> None:
+        self.dismiss(None)
+
+    def action_choose_cpp(self) -> None:
+        self.dismiss("cpp")
+
+    def action_choose_python(self) -> None:
+        self.dismiss("python")
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class DashboardScreen(Screen):
