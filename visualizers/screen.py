@@ -24,61 +24,106 @@ class ArrayVisualizerScreen(Screen):
     ]
 
     CSS = """
+    ArrayVisualizerScreen {
+        background: #0b1220;
+    }
+
     ArrayVisualizerScreen #visualizer_title {
-        height: 3;
-        padding: 1 2;
-        background: $boost;
+        height: 1;
+        padding: 0 2;
+        background: #111827;
+        color: #e5e7eb;
         text-style: bold;
     }
 
     ArrayVisualizerScreen #array_visualization {
         height: auto;
-        min-height: 10;
-        margin: 2;
-        padding: 1 2;
-        border: round $accent;
+        min-height: 8;
+        margin: 1 2 0 2;
+        padding: 1;
+        border: round #334155;
+        background: #111827;
+        color: #e5e7eb;
     }
 
     ArrayVisualizerScreen #step_message {
         height: auto;
         margin: 0 2;
-        padding: 1 2;
-        border: round $primary;
+        padding: 0 1;
+        border-left: thick #2563eb;
+        background: #0f172a;
+        color: #cbd5e1;
     }
 
     ArrayVisualizerScreen #step_counter {
-        height: 3;
+        height: 1;
         margin: 0 2;
-        text-align: center;
+        color: #94a3b8;
+        text-align: right;
         text-style: bold;
     }
 
     ArrayVisualizerScreen #input_row {
-        height: 3;
+        height: 1;
         margin: 1 2 0 2;
     }
 
     ArrayVisualizerScreen #input_label {
-        width: 8;
-        height: 3;
-        padding: 1 1 0 0;
+        width: 7;
+        height: 1;
+        padding: 0 1 0 0;
+        color: #94a3b8;
     }
 
     ArrayVisualizerScreen #array_input {
         width: 1fr;
+        height: 1;
+        min-height: 1;
+        border: none;
+        padding: 0 1;
+        background: #1f2937;
+        color: #f8fafc;
     }
 
     ArrayVisualizerScreen #controls {
-        height: 3;
-        margin: 0 2 1 2;
+        height: 1;
+        margin: 1 2;
         align-horizontal: center;
     }
 
     ArrayVisualizerScreen #controls Button {
         width: auto;
-        min-width: 12;
-        height: 3;
-        margin: 0 1;
+        min-width: 10;
+        height: 1;
+        margin: 0 1 0 0;
+        padding: 0 2;
+        border: none;
+        color: #ffffff;
+        text-style: bold;
+    }
+
+    ArrayVisualizerScreen #load_button {
+        background: #0f766e;
+    }
+
+    ArrayVisualizerScreen #previous_button {
+        background: #475569;
+    }
+
+    ArrayVisualizerScreen #next_button {
+        background: #2563eb;
+    }
+
+    ArrayVisualizerScreen #reset_button {
+        background: #92400e;
+    }
+
+    ArrayVisualizerScreen #controls Button:hover {
+        text-style: bold reverse;
+    }
+
+    ArrayVisualizerScreen #controls Button:disabled {
+        opacity: 40%;
     }
     """
 

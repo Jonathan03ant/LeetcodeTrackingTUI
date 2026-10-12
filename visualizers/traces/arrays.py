@@ -9,10 +9,10 @@ def _sort_colors_state(
     nums: list[int], low: int, mid: int, high: int, message: str
 ) -> ArrayState:
     ranges = (
-        ArrayRange(0, low - 1, "0s", "bold white on dark_green"),
-        ArrayRange(low, mid - 1, "1s", "bold black on bright_yellow"),
-        ArrayRange(mid, high, "unprocessed", "bold white on dark_red"),
-        ArrayRange(high + 1, len(nums) - 1, "2s", "bold white on dark_blue"),
+        ArrayRange(0, low - 1, "0s", "completed"),
+        ArrayRange(low, mid - 1, "1s", "primary"),
+        ArrayRange(mid, high, "unprocessed", "unprocessed"),
+        ArrayRange(high + 1, len(nums) - 1, "2s", "secondary"),
     )
     return ArrayState(
         values=tuple(nums),
@@ -87,7 +87,7 @@ def trace_move_zeroes(values: list[int]) -> Iterator[ArrayState]:
                 0,
                 len(nums) - 1,
                 "unprocessed",
-                "bold white on dark_red",
+                "unprocessed",
             ),
         ),
         highlights=frozenset({0}) if nums else frozenset(),
@@ -129,19 +129,19 @@ def trace_move_zeroes(values: list[int]) -> Iterator[ArrayState]:
                     0,
                     slow - 1,
                     "compacted non-zeroes",
-                    "bold white on dark_green",
+                    "completed",
                 ),
                 ArrayRange(
                     slow,
                     fast,
                     "encountered zeroes",
-                    "bold black on bright_yellow",
+                    "primary",
                 ),
                 ArrayRange(
                     fast + 1,
                     len(nums) - 1,
                     "unprocessed",
-                    "bold white on dark_red",
+                    "unprocessed",
                 ),
             ),
             highlights=frozenset({fast}),

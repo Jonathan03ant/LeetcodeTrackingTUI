@@ -10,14 +10,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll
 
 from leetcode_fetcher import fetch_problem_description, format_problem_for_display
 from textual.widgets import (
     Header, Footer, Static, ProgressBar, Button,
-    Label, Input, Collapsible, TextArea
+    Label, Input, Collapsible, TextArea, OptionList
 )
+from textual.widgets.option_list import Option
 from textual.binding import Binding
 from textual.screen import Screen, ModalScreen
 from textual import on
@@ -466,127 +468,186 @@ class ViewSolutionsScreen(Screen):
 
 
 class SearchProblemScreen(ModalScreen[Optional[Tuple]]):
-    """Find and select a tracked LeetCode problem by name."""
+    """Keyboard-first fuzzy finder for tracked problems."""
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        Binding("down", "next_result", "Next", priority=True),
+        Binding("up", "previous_result", "Previous", priority=True),
+        Binding("enter", "select_result", "Open", priority=True),
+        Binding("escape", "cancel", "Cancel", priority=True),
+    ]
 
     CSS = """
     SearchProblemScreen {
         align: center middle;
+        background: $background 70%;
     }
 
     SearchProblemScreen #search_dialog {
-        width: 72;
-        height: auto;
-        max-height: 26;
-        padding: 1 2;
-        border: round $accent;
-        background: $surface;
+        width: 78;
+        max-width: 95%;
+        height: 24;
+        max-height: 80%;
+        padding: 1;
+        border: round #5e81ac;
+        background: #111827;
     }
 
     SearchProblemScreen #search_title {
+        height: 1;
+        color: #e5e7eb;
         text-style: bold;
         margin-bottom: 1;
     }
 
+    SearchProblemScreen #search_input {
+        height: 1;
+        min-height: 1;
+        border: none;
+        background: #1f2937;
+        color: #f8fafc;
+        padding: 0 1;
+    }
+
     SearchProblemScreen #search_results {
-        height: auto;
-        min-height: 5;
-        max-height: 12;
+        height: 1fr;
+        border: none;
+        background: #111827;
         margin: 1 0;
+        padding: 0;
     }
 
-    SearchProblemScreen #search_buttons {
-        height: 3;
-        align-horizontal: right;
+    SearchProblemScreen #search_results > .option-list--option {
+        color: #cbd5e1;
     }
 
-    SearchProblemScreen #search_buttons Button {
-        width: auto;
-        min-width: 12;
-        margin-left: 1;
+    SearchProblemScreen #search_results > .option-list--option-highlighted {
+        background: #2563eb;
+        color: #ffffff;
+        text-style: bold;
+    }
+
+    SearchProblemScreen #search_results > .option-list--option-hover {
+        background: #1e293b;
+        color: #f8fafc;
+    }
+
+    SearchProblemScreen #search_status {
+        height: 1;
+        color: #94a3b8;
+    }
+
+    SearchProblemScreen #search_hint {
+        height: 1;
+        color: #64748b;
+        text-align: right;
     }
     """
 
     def __init__(self, problems: List[Tuple]):
         super().__init__()
         self.problems = problems
+        self.matches: List[Tuple] = []
 
     def compose(self) -> ComposeResult:
         yield Container(
-            Label("Search tracked problems", id="search_title"),
-            Input(placeholder="Example: Move Zeroes", id="search_input"),
-            Label("Type part of a problem name.", id="search_results"),
-            Horizontal(
-                Button("Load", id="search_load", variant="primary"),
-                Button("Cancel", id="search_cancel"),
-                id="search_buttons",
+            Label("Find a problem", id="search_title"),
+            Input(
+                placeholder="Search by name, pattern, or topic...",
+                id="search_input",
             ),
+            OptionList(id="search_results", compact=True),
+            Label("", id="search_status"),
+            Label("↑/↓ navigate   Enter open   Esc close", id="search_hint"),
             id="search_dialog",
         )
 
     def on_mount(self) -> None:
+        self._update_results("")
         self.query_one("#search_input", Input).focus()
 
-    def _matches(self, query: str) -> List[Tuple]:
-        normalized = query.strip().lower()
-        if not normalized:
-            return []
-        return [problem for problem in self.problems if normalized in problem[0].lower()]
+    def _match_score(self, problem: Tuple, query: str) -> Optional[int]:
+        if not query:
+            return 0
 
-    def _show_matches(self, query: str) -> None:
-        results = self.query_one("#search_results", Label)
-        matches = self._matches(query)
-        if not query.strip():
-            results.update("Type part of a problem name.")
-        elif not matches:
-            results.update("No tracked problems match.")
-        else:
-            preview = [
-                f"{problem[0]}  ·  {problem[3]}  ·  {problem[4]}"
-                for problem in matches[:8]
-            ]
-            if len(matches) > 8:
-                preview.append(f"...and {len(matches) - 8} more")
-            results.update("\n".join(preview))
-
-    def _load_match(self) -> None:
-        query = self.query_one("#search_input", Input).value.strip()
-        matches = self._matches(query)
-        exact_match = next(
-            (problem for problem in matches if problem[0].lower() == query.lower()),
-            None,
+        name = problem[0].lower()
+        searchable = " ".join(
+            str(value).lower() for value in (problem[0], problem[1], problem[3])
         )
 
-        if exact_match:
-            self.dismiss(exact_match)
-        elif len(matches) == 1:
-            self.dismiss(matches[0])
-        elif not matches:
-            self.query_one("#search_results", Label).update(
-                "No tracked problems match."
-            )
-        else:
-            self.query_one("#search_results", Label).update(
-                f"{len(matches)} problems match. Type a more specific name.\n\n"
-                + "\n".join(problem[0] for problem in matches[:8])
-            )
+        if name == query:
+            return 10_000
+        if name.startswith(query):
+            return 8_000 - len(name)
+        if query in name:
+            return 6_000 - name.index(query)
+        if query in searchable:
+            return 4_000 - searchable.index(query)
+
+        positions = []
+        cursor = 0
+        for character in query:
+            position = searchable.find(character, cursor)
+            if position == -1:
+                return None
+            positions.append(position)
+            cursor = position + 1
+
+        gaps = positions[-1] - positions[0] - len(positions) + 1
+        return 2_000 - positions[0] - gaps * 2
+
+    def _find_matches(self, query: str) -> List[Tuple]:
+        normalized = query.strip().lower()
+        ranked = []
+        for problem in self.problems:
+            score = self._match_score(problem, normalized)
+            if score is not None:
+                ranked.append((score, problem[0].lower(), problem))
+        ranked.sort(key=lambda match: (-match[0], match[1]))
+        return [problem for _, _, problem in ranked]
+
+    def _format_option(self, problem: Tuple) -> Text:
+        prompt = Text(problem[0], style="bold")
+        details = " · ".join(value for value in (problem[1], problem[3]) if value)
+        if details:
+            prompt.append(f"  {details}", style="dim")
+        return prompt
+
+    def _update_results(self, query: str) -> None:
+        self.matches = self._find_matches(query)
+        results = self.query_one("#search_results", OptionList)
+        results.clear_options()
+        results.add_options(
+            Option(self._format_option(problem), id=str(index))
+            for index, problem in enumerate(self.matches)
+        )
+        results.highlighted = 0 if self.matches else None
+
+        status = self.query_one("#search_status", Label)
+        count = len(self.matches)
+        status.update(f"{count} match{'es' if count != 1 else ''}")
+
+    def _select_highlighted(self) -> None:
+        results = self.query_one("#search_results", OptionList)
+        if results.highlighted is not None:
+            self.dismiss(self.matches[results.highlighted])
 
     @on(Input.Changed, "#search_input")
     def search_changed(self, event: Input.Changed) -> None:
-        self._show_matches(event.value)
+        self._update_results(event.value)
 
-    @on(Input.Submitted, "#search_input")
-    def search_submitted(self) -> None:
-        self._load_match()
+    @on(OptionList.OptionSelected, "#search_results")
+    def result_selected(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(self.matches[event.option_index])
 
-    @on(Button.Pressed, "#search_load")
-    def load_pressed(self) -> None:
-        self._load_match()
+    def action_next_result(self) -> None:
+        self.query_one("#search_results", OptionList).action_cursor_down()
 
-    @on(Button.Pressed, "#search_cancel")
-    def cancel_pressed(self) -> None:
-        self.dismiss(None)
+    def action_previous_result(self) -> None:
+        self.query_one("#search_results", OptionList).action_cursor_up()
+
+    def action_select_result(self) -> None:
+        self._select_highlighted()
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -1275,70 +1336,108 @@ class LanguagePreferenceScreen(ModalScreen[Optional[str]]):
     """Choose the default language used for solutions."""
 
     BINDINGS = [
-        Binding("c", "choose_cpp", "C++"),
-        Binding("p", "choose_python", "Python"),
-        Binding("escape", "cancel", "Cancel"),
+        Binding("down", "next_language", "Next", priority=True),
+        Binding("up", "previous_language", "Previous", priority=True),
+        Binding("enter", "select_language", "Select", priority=True),
+        Binding("c", "choose_cpp", "C++", priority=True),
+        Binding("p", "choose_python", "Python", priority=True),
+        Binding("escape", "cancel", "Cancel", priority=True),
     ]
 
     CSS = """
     LanguagePreferenceScreen {
         align: center middle;
+        background: $background 70%;
     }
 
     LanguagePreferenceScreen #language_dialog {
-        width: 52;
-        height: auto;
-        padding: 1 2;
-        border: round $accent;
-        background: $surface;
+        width: 50;
+        max-width: 90%;
+        height: 10;
+        padding: 1;
+        border: round #5e81ac;
+        background: #111827;
     }
 
     LanguagePreferenceScreen #language_title {
+        height: 1;
+        color: #e5e7eb;
         text-style: bold;
-        margin-bottom: 1;
     }
 
-    LanguagePreferenceScreen #language_buttons {
-        height: 3;
-        align-horizontal: center;
+    LanguagePreferenceScreen #language_options {
+        height: 2;
+        border: none;
+        background: #111827;
+        margin: 1 0;
+        padding: 0;
     }
 
-    LanguagePreferenceScreen #language_buttons Button {
-        width: auto;
-        min-width: 13;
-        margin: 0 1;
+    LanguagePreferenceScreen #language_options > .option-list--option {
+        color: #cbd5e1;
+    }
+
+    LanguagePreferenceScreen #language_options > .option-list--option-highlighted {
+        background: #2563eb;
+        color: #ffffff;
+        text-style: bold;
+    }
+
+    LanguagePreferenceScreen #language_options > .option-list--option-hover {
+        background: #1e293b;
+        color: #f8fafc;
+    }
+
+    LanguagePreferenceScreen #language_hint {
+        height: 1;
+        color: #64748b;
+        text-align: right;
     }
     """
 
     def __init__(self, current_language: str):
         super().__init__()
         self.current_language = current_language
+        self.languages = list(LANGUAGES)
 
     def compose(self) -> ComposeResult:
-        current_name = LANGUAGE_NAMES[self.current_language]
         yield Container(
-            Label("Preferred solution language", id="language_title"),
-            Label(f"Current: {current_name}"),
-            Horizontal(
-                Button("C++", id="language_cpp", variant="primary"),
-                Button("Python", id="language_python"),
-                Button("Cancel", id="language_cancel"),
-                id="language_buttons",
+            Label("Preferred language", id="language_title"),
+            OptionList(
+                *(
+                    Option(
+                        f"{config['display_name']}  {config['extension']}",
+                        id=language,
+                    )
+                    for language, config in LANGUAGES.items()
+                ),
+                id="language_options",
+                compact=True,
             ),
+            Label("↑/↓ navigate   Enter select   Esc close", id="language_hint"),
             id="language_dialog",
         )
 
-    @on(Button.Pressed, "#language_cpp")
-    def cpp_pressed(self) -> None:
-        self.dismiss("cpp")
+    def on_mount(self) -> None:
+        options = self.query_one("#language_options", OptionList)
+        options.highlighted = self.languages.index(self.current_language)
+        options.focus()
 
-    @on(Button.Pressed, "#language_python")
-    def python_pressed(self) -> None:
-        self.dismiss("python")
+    @on(OptionList.OptionSelected, "#language_options")
+    def language_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option_id:
+            self.dismiss(event.option_id)
 
-    @on(Button.Pressed, "#language_cancel")
-    def cancel_pressed(self) -> None:
-        self.dismiss(None)
+    def action_next_language(self) -> None:
+        self.query_one("#language_options", OptionList).action_cursor_down()
+
+    def action_previous_language(self) -> None:
+        self.query_one("#language_options", OptionList).action_cursor_up()
+
+    def action_select_language(self) -> None:
+        options = self.query_one("#language_options", OptionList)
+        if options.highlighted is not None:
+            self.dismiss(self.languages[options.highlighted])
 
     def action_choose_cpp(self) -> None:
         self.dismiss("cpp")

@@ -11,7 +11,7 @@ class ArrayRange:
     start: int
     end: int
     label: str
-    style: str
+    role: str
 
 
 @dataclass(frozen=True)
