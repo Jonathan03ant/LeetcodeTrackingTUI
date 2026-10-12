@@ -691,6 +691,83 @@ class SolutionPreviewScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class ConfirmationScreen(ModalScreen[bool]):
+    """Reusable confirmation dialog for protected actions."""
+
+    BINDINGS = [
+        Binding("y", "confirm", "Confirm", priority=True),
+        Binding("n", "cancel", "Cancel", priority=True),
+        Binding("escape", "cancel", "Cancel", priority=True),
+    ]
+
+    CSS = """
+    ConfirmationScreen {
+        align: center middle;
+    }
+
+    ConfirmationScreen #confirmation_dialog {
+        width: 64;
+        height: auto;
+        padding: 1 2;
+        border: round $warning;
+        background: $surface;
+    }
+
+    ConfirmationScreen #confirmation_title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    ConfirmationScreen #confirmation_buttons {
+        height: 3;
+        align-horizontal: right;
+        margin-top: 1;
+    }
+
+    ConfirmationScreen #confirmation_buttons Button {
+        width: auto;
+        min-width: 13;
+        margin-left: 1;
+    }
+    """
+
+    def __init__(self, title: str, message: str, confirm_label: str = "Confirm"):
+        super().__init__()
+        self.title = title
+        self.message = message
+        self.confirm_label = confirm_label
+
+    def compose(self) -> ComposeResult:
+        yield Container(
+            Label(self.title, id="confirmation_title"),
+            Label(self.message),
+            Horizontal(
+                Button(
+                    self.confirm_label,
+                    id="confirmation_confirm",
+                    variant="warning",
+                ),
+                Button("Cancel", id="confirmation_cancel"),
+                id="confirmation_buttons",
+            ),
+            id="confirmation_dialog",
+        )
+
+    @on(Button.Pressed, "#confirmation_confirm")
+    def confirm_pressed(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#confirmation_cancel")
+    def cancel_pressed(self) -> None:
+        self.dismiss(False)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
 class SolveModeScreen(Screen):
     """Full screen for spaced repetition practice with split-screen editor"""
 
@@ -747,6 +824,8 @@ class SolveModeScreen(Screen):
         self.current_problem = None
         self.current_problem_text = ""  # Store problem description for toggle
         self.current_solution_file = None
+        self.solution_existed_at_load = False
+        self.overwrite_approved = False
         self.current_editor_language = self.progress_data.get_preferred_language()
         self.last_problem_name = None  # Track last shown problem to avoid immediate repeats
 
@@ -926,24 +1005,38 @@ class SolveModeScreen(Screen):
             problem_text.update(basic_info)
             self.current_problem_text = basic_info
 
-        # Setup code editor with template
-        code_editor = self.query_one("#code_editor", TextArea)
         slug = self.extract_slug_from_url(url) if url else self.slugify_name(problem_name)
         solutions_dir = Path(__file__).parent.parent / "LEETCODE" / "solutions"
         self.current_solution_file = solutions_dir / f"{slug}{language_config['extension']}"
+        self.solution_existed_at_load = self.current_solution_file.exists()
+        self.overwrite_approved = False
+        self._load_editor_template(
+            language,
+            problem_name,
+            topic_name,
+            phase_name,
+            pattern,
+            code_template,
+        )
 
-        # Load existing solution if available, otherwise create template
-        if self.current_solution_file.exists():
-            code_editor.text = self.current_solution_file.read_text()
-        else:
-            code_editor.text = self.build_solution_template(
-                language,
-                problem_name,
-                topic_name,
-                phase_name,
-                pattern,
-                code_template,
-            )
+    def _load_editor_template(
+        self,
+        language: str,
+        problem_name: str,
+        topic_name: str,
+        phase_name: str,
+        pattern: str,
+        code_template: str,
+    ) -> None:
+        """Start a practice attempt from the selected language template."""
+        self.query_one("#code_editor", TextArea).text = self.build_solution_template(
+            language,
+            problem_name,
+            topic_name,
+            phase_name,
+            pattern,
+            code_template,
+        )
 
     def _empty_editor_text(self, language: str) -> str:
         """Return a language-appropriate empty editor prompt."""
@@ -1088,12 +1181,34 @@ class SolveModeScreen(Screen):
             self.notify("No problem loaded. Generate a problem first.", severity="warning")
             return
 
-        code_editor = self.query_one("#code_editor", TextArea)
-
         if self.current_solution_file is None:
             self.notify("No solution file is associated with this problem", severity="warning")
             return
 
+        if self.solution_existed_at_load and not self.overwrite_approved:
+            self.app.push_screen(
+                ConfirmationScreen(
+                    "Replace saved solution?",
+                    f"{self.current_solution_file.name} already exists.",
+                    "Overwrite",
+                ),
+                self._handle_overwrite_confirmation,
+            )
+            return
+
+        self._write_current_solution()
+
+    def _handle_overwrite_confirmation(self, confirmed: bool) -> None:
+        if confirmed:
+            self.overwrite_approved = True
+            self._write_current_solution()
+
+    def _write_current_solution(self) -> None:
+        """Persist the active practice attempt."""
+        if self.current_solution_file is None:
+            return
+
+        code_editor = self.query_one("#code_editor", TextArea)
         self.current_solution_file.parent.mkdir(parents=True, exist_ok=True)
         self.current_solution_file.write_text(code_editor.text)
 
